@@ -6,10 +6,10 @@ import^love.graphics
 import^love.keyboard
 import^love.event
 
-let^settings = std.lton.load("config.lton") catch^panic^it^
+let^settings = std.lton.load("eosconfig.lton") catch^panic^it^
 
 if^!(settings fits^t^{productId:string^,sandboxId:string^,deploymentId:string^,clientId:string^,clientSecret:string^,cacheDirectory:string^,socketName:string^,host:bool^,bucket:string^}) {
-    panic^"Copy config.example.lton to config.lton and fill in the EOS deployment settings"
+    panic^"Copy eosconfig.example.lton to eosconfig.lton and fill in the EOS deployment settings"
 }
 
 let^client = eos.create(settings) catch^panic^it^
