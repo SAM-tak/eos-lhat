@@ -1,4 +1,4 @@
-"""Embed signatures produced by a matching full LÔVE host, then rebuild the extension."""
+"""Embed signatures produced by the matching L^ tooling host, then rebuild the extension."""
 import argparse
 import os
 from pathlib import Path
@@ -14,28 +14,26 @@ def run(*args, **kwargs):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--lovec', type=Path, default=ROOT.parent / 'lhat-love/build/love/Release/lovec.exe')
+    p.add_argument('--host', type=Path, help='Full eos_lhat_host executable (defaults to the build directory)')
     p.add_argument('--build', type=Path, default=ROOT / 'build')
     p.add_argument('--sdk', type=Path, default=ROOT / 'EOSSDK/SDK')
     p.add_argument('--config', default='Release')
     a = p.parse_args()
+    host = a.host or next(x for x in [a.build / 'tools' / a.config / 'eos_lhat_host.exe', a.build / 'tools' / 'eos_lhat_host'] if x.exists())
     suffix = '.dll' if sys.platform == 'win32' else '.dylib' if sys.platform == 'darwin' else '.so'
     candidates = [a.build / a.config / ('eos_lhat' + suffix), a.build / ('eos_lhat' + suffix)]
     library = next((x for x in candidates if x.exists()), None)
     if not library:
         raise SystemExit('Build eos_lhat first')
     with tempfile.TemporaryDirectory(prefix='eos-signatures-') as tmp:
-        game = Path(tmp)
-        shutil.copy2(library, game / library.name)
+        work = Path(tmp)
+        shutil.copy2(library, work / library.name)
         for dep in (a.sdk / 'Bin').glob('*' + suffix):
-            shutil.copy2(dep, game / dep.name)
-        (game / 'extensions.txt').write_text('eos_lhat\n', encoding='utf-8')
-        (game / 'main.lh').write_text('module^signatureProbe\nimport^eos\npublic^let^run = p^{ return^0 }\n', encoding='utf-8')
-        (game / 'conf.lton').write_text('window = false^, modules = {audio = false^, graphics = false^}', encoding='utf-8')
-        binary = game / 'signatures.bin'
+            shutil.copy2(dep, work / dep.name)
+        binary = work / 'signatures.bin'
         env = dict(os.environ)
-        env['PATH'] = str(game) + os.pathsep + env.get('PATH', '')
-        run(a.lovec.resolve(), '--no-error-screen', '--dump-signatures', binary, game, env=env, cwd=game)
+        env['PATH'] = str(work) + os.pathsep + env.get('PATH', '')
+        run(host.resolve(), 'signatures', work / library.name, binary, env=env, cwd=work)
         data = binary.read_bytes()
         header = a.build / 'generated/eos_signatures.h'
         lines = [', '.join(f'0x{x:02x}' for x in data[n:n+16]) + ',' for n in range(0, len(data), 16)]

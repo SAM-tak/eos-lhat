@@ -105,7 +105,7 @@ EOS_EResult EOS_CALL EOS_Shutdown() {
     if (const char *path = std::getenv("EOS_LHAT_TEST_LIFETIME")) {
         std::ofstream log(path, std::ios::app);
         log << fake::initializations << " " << fake::shutdowns << " " << fake::platforms.size()
-            << "\n";
+            << " " << fake::releases << "\n";
     }
     return R::EOS_Success;
 }

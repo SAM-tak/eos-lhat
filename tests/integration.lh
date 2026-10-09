@@ -1,8 +1,18 @@
 module^eosIntegration
 import^eos
 
-let^config = {productId="product",sandboxId="sandbox",deploymentId="deployment",clientId="client",clientSecret="secret",cacheDirectory="cache",socketName="test"}
+let^config = {
+    productId="product",
+    sandboxId="sandbox",
+    deploymentId="deployment",
+    clientId="client",
+    clientSecret="secret",
+    cacheDirectory="cache",
+    socketName="test"
+}
+
 let^check = p^value:bool^,message:string^{ if^value = false^ { panic^message } }
+
 let^drain = p^client:eos.Client{
     repeat^{
         let^event = client.poll() catch^panic^it^
@@ -11,6 +21,7 @@ let^drain = p^client:eos.Client{
         check(event.kind != eos.EventKind.overflow,"Event queue overflow")
     }
 }
+
 public^let^run = p^{
     let^a = eos.create(config) catch^panic^it^
     let^b = eos.create(config) catch^panic^it^
@@ -59,6 +70,5 @@ public^let^run = p^{
     a.close() catch^panic^it^
     a.close() catch^panic^it^
     check(a.tick() fits^eos.Error,"Closed client rejected")
-    print("PASS: L^ EOS lobby/P2P bindings")
     return^0
 }

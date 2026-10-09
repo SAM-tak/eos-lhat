@@ -7,9 +7,9 @@ Steam認証・ロビー検索によるマッチング・P2P通信を提供する
 ## 必要なもの
 
 - **拡張ABI 2**に対応したL^ホスト。今回追加した終了フックを含むlhat/lhat-loveをビルドする。旧ABI 1のホストではロードできない。
-- ホストと一致するL^公開ヘッダと、ホストのビルドで生成された`lhat/version.h`。
+- ホストと一致するL^のソースcheckout（既定は`../lhat`）。CMakeがlhat本体だけを使うツールをビルドし、`lhat/version.h`も生成する。利用先と同じL^の版・ABI設定でビルドする。
 - 別途取得したEOS SDK。**1.19.2.1 / Windows x64**で確認。`EOSSDK/SDK/Include`、`Lib`、`Bin`が存在する形で展開する。
-- CMake 3.20以上、C++17コンパイラ、Python 3、署名表を生成するフル版LÔVE。
+- CMake 3.25以上、C/C++17コンパイラ、Python 3。LÔVEはサンプルの実行にのみ必要で、ビルド・テストには不要。
 
 SDK本体・Steamworks SDK・認証情報・チケット・ビルド成果物はリポジトリに同梱しない。EOS SDKへはリンクするが、別コピーのlhatランタイムはリンクしない。
 
@@ -17,12 +17,11 @@ SDK本体・Steamworks SDK・認証情報・チケット・ビルド成果物は
 
 ```powershell
 .\scripts\build.ps1 -Test
-python tests/test_lhat.py
 ```
 
-DLLをビルドし、フル版ホストから署名表を出力して埋め込み、再ビルドする。`build/Release/eos_lhat.dll`をフル版・VM専用版の両方で使える。バインドやL^の更新後には作り直す。
+DLLと、lhat本体だけをリンクする小さなツール`eos_lhat_host`をビルドする。このツールからEOSの署名表を出力して埋め込み、DLLを再ビルドする。`build/Release/eos_lhat.dll`をフル版・VM専用版の両方で使える。バインドやL^の更新後には作り直す。
 
-配置が異なる場合は`-Lovec`、`-Lhat`、`-LhatGenerated`、`-Sdk`、`-Build`を指定する。Linux/macOS向けCMake設定もあるが、現段階では未ビルド・未検証。詳しいCMakeコマンドは英語版READMEを参照。`BUILD_TESTING=OFF`でテスト用DLLを除外できる。インストール対象は本物の拡張DLLだけ。
+配置が異なる場合は`-Lhat`、`-Sdk`、`-Build`を指定する。`-Test`はネイティブテストに加えてL^の統合テストも実行し、`LHAT_WITH_FRONTEND=OFF`のVM専用テストホストも自動ビルドする。Linux/macOS向けCMake設定もあるが、現段階では未ビルド・未検証。詳しいCMakeコマンドは英語版READMEを参照。`BUILD_TESTING=OFF`でテスト用DLLを除外できる。`cmake --install build --config Release --prefix dist`のインストール対象は本物の拡張DLLだけ。Windowsの配布物は **`eos_lhat.dll`のみ**。`.lib`、`.exp`、ツール、`eos_lhat_mock.dll`は配布しない。mockはEOSサービスへ接続せずに動作を再現する自動テスト用。利用者はEOSランタイムを別途用意する。
 
 ## エディタ用の型情報
 
@@ -132,3 +131,5 @@ Client再作成やLÔVE restartではEOS SDKの初期化状態を保持する。
 テストは実SDKのロード・オフラインでのPlatform再作成、通常版/VM版のバインド、模擬SDKでの2クライアント通信・認証更新・参加者制限・通知上限・後始末、サンプルのコンパイルを対象とする。**実Steam認証・EOSサービス上のマッチング・NAT越え/リレーでの2台通信は未検証**。有効なEOS設定と2つの実アカウント/端末が必要で、模擬テストでは確認できない。
 
 実績・フレンド・招待・ボイス・カスタムロビー属性・自動マッチングキュー・Steamチケット取得・アカウントリンク・ゲーム状態同期は初版の範囲外。
+
+統合テストはLÔVEを使わず、フル版・VM専用版のL^で実行する。restartテストでは同じプロセス内でProgramとVMを3回作り直し、EOSの初期化・終了が各1回で、全3個のPlatformが解放されることを確認する。`examples/love-p2p`はそのまま残し、このテストの対象から外している。

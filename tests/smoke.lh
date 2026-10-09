@@ -8,7 +8,6 @@ public^let^run = p^{
         a.close() catch^panic^it^
         let^b = eos.create(config) catch^panic^it^
         b.close() catch^panic^it^
-        print("PASS: real EOS SDK registration, validation, platform recreation and shutdown")
         return^0
     }
     return^1

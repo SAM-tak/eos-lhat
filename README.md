@@ -8,9 +8,9 @@ The binding uses the EOS SDK's Connect, Lobby and P2P interfaces. It does not im
 ## Requirements
 
 - An L^ host supporting **native extension ABI 2**, including the module shutdown hook. Build the accompanying lhat/lhat-love changes before using this extension; the earlier ABI 1 release cannot load it.
-- The matching L^ source headers and generated `lhat/version.h` from that host build.
+- The matching L^ source checkout (by default `../lhat`). CMake builds a small tooling host against this checkout and generates `lhat/version.h`; use the same L^ version and ABI settings as the target application.
 - Epic Online Services SDK, downloaded separately. Tested against **1.19.2.1, Windows x64**. Unpack so `EOSSDK/SDK/Include`, `Lib` and `Bin` exist, or set `EOS_SDK_ROOT`.
-- CMake 3.20+, C++17 compiler, Python 3, and a full LÔVE executable to generate signatures.
+- CMake 3.25+, C/C++17 compilers and Python 3. LÔVE is only needed to run the example, not to build or test the extension.
 
 The repository contains no EOS SDK or Steamworks SDK. SDK installation directories, local credentials, tickets and build artifacts are ignored by Git. The extension links the EOS SDK but **does not link a second lhat runtime**.
 
@@ -18,23 +18,22 @@ The repository contains no EOS SDK or Steamworks SDK. SDK installation directori
 
 ```powershell
 .\scripts\build.ps1 -Test
-python tests/test_lhat.py
 ```
 
-The script first builds the DLL, asks the full host for its registered signatures, embeds them, and rebuilds. The resulting `build/Release/eos_lhat.dll` supports both full and VM-only hosts. Re-run after changing bindings or upgrading L^. Override `-Lovec`, `-Lhat`, `-LhatGenerated`, `-Sdk`, or `-Build` for other layouts.
+The script builds the DLL and `eos_lhat_host`, a small tool linked only to the L^ core. It uses this tool to generate EOS signatures, embeds them, and rebuilds the DLL. The resulting `build/Release/eos_lhat.dll` supports both full and VM-only hosts. Re-run after changing bindings or upgrading L^. Override `-Lhat`, `-Sdk`, or `-Build` for other layouts. `-Test` runs the native tests and the L^ integration suite, which builds a second tooling host with `LHAT_WITH_FRONTEND=OFF`.
 
 Equivalent CMake commands (platform SDK libraries must be available):
 
 ```sh
 cmake -S . -B build -DEOS_SDK_ROOT=/path/to/SDK \
-  -DLHAT_ROOT=/path/to/lhat -DLHAT_GENERATED_INCLUDE=/path/to/host/lhat/include
+  -DLHAT_ROOT=/path/to/lhat -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
-python scripts/embed-signatures.py --lovec /path/to/full/love --sdk /path/to/SDK
+python scripts/embed-signatures.py --sdk /path/to/SDK
 ctest --test-dir build -C Release --output-on-failure
-python tests/test_lhat.py --lovec /path/to/full/love --vm /path/to/vm/love
+python tests/test_lhat.py --lhat /path/to/lhat --sdk /path/to/SDK
 ```
 
-Linux/macOS build paths are provided but have not been built or tested here. Set `BUILD_TESTING=OFF` for a production-only build. `cmake --install` installs only the real extension, never the mock library or the SDK.
+Linux/macOS build paths are provided but have not been built or tested here. Set `BUILD_TESTING=OFF` for a production-only build. `cmake --install build --config Release --prefix dist` installs only the real extension. On Windows, the release artifact is **`eos_lhat.dll` only**; `.lib`, `.exp`, tooling executables and `eos_lhat_mock.dll` are not distributed. The mock replaces EOS for deterministic tests and cannot connect to real EOS services. Users supply the EOS runtime separately.
 
 ## Editor type information
 
@@ -139,6 +138,6 @@ Only current lobby peers can be sent to or accepted; disconnecting/kicking membe
 
 Call `leave()` and keep ticking until completion for graceful departure, then `close()`. GC/disposal is a fallback, not an orderly lobby exit. Closing a Client cancels pending completions; no events are delivered afterward. The EOS SDK stays initialized across Client recreation and LÔVE restart. The ABI 2 shutdown hook calls `EOS_Shutdown` once, after all programs/registry callbacks are destroyed, before the extension is unloaded. A host that already owns EOS is deliberately rejected; borrowed-platform integration is not implemented.
 
-Tests cover real SDK loading, offline platform creation/recreation, full/VM registration, and a deterministic fake backend for login continuation, token refresh, two-player lobby search/join, binary P2P packets, membership filtering, queue overflow and cleanup. The sample is also compiled by the test. **Real Steam login, EOS backend matchmaking and NAT/relay connectivity have not been verified**: they require a configured EOS deployment and two real accounts/devices. Mock tests do not validate those services.
+Tests cover real SDK loading, offline platform creation/recreation, full/VM registration, and a deterministic fake backend for login continuation, token refresh, two-player lobby search/join, binary P2P packets, membership filtering, queue overflow and cleanup. The restart test destroys and recreates the entire L^ Program and VM three times in one process while retaining the extension. It checks one SDK initialization/shutdown and the release of all three platforms. The LÔVE example is kept separately and is not part of this L^-only suite. **Real Steam login, EOS backend matchmaking and NAT/relay connectivity have not been verified**: they require a configured EOS deployment and two real accounts/devices. Mock tests do not validate those services.
 
 Achievements, friends, invites, voice, custom lobby attributes, automatic matchmaking queues, Steam ticket acquisition, account linking and game-state synchronization are outside this first implementation.
