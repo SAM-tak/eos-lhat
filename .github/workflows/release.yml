@@ -39,7 +39,7 @@ jobs:
         shell: pwsh
     steps:
       - name: Checkout bindings
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -63,7 +63,7 @@ jobs:
           }
 
       - name: Checkout L^
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: SAM-tak/lhat
           ref: ${{ steps.revisions.outputs.lhat }}
@@ -71,7 +71,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout private EOS SDK
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: SAM-tak/eos-sdk-private
           ref: ${{ steps.revisions.outputs.eos-sdk }}
@@ -117,7 +117,7 @@ jobs:
           python tests/test_lhat.py --lhat "$PWD/build-deps/lhat" --installed "$PWD/build/package/native/${{ matrix.library }}"
 
       - name: Upload tested library
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: eos-lhat-${{ matrix.platform }}
           path: build/package/native/${{ matrix.library }}
@@ -134,7 +134,7 @@ jobs:
       contents: write
     steps:
       - name: Download tested libraries
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: eos-lhat-*
           path: release
