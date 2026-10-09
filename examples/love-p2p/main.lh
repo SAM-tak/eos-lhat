@@ -7,9 +7,11 @@ import^love.keyboard
 import^love.event
 
 let^settings = std.lton.load("config.lton") catch^panic^it^
+
 if^!(settings fits^t^{productId:string^,sandboxId:string^,deploymentId:string^,clientId:string^,clientSecret:string^,cacheDirectory:string^,socketName:string^,host:bool^,bucket:string^}) {
     panic^"Copy config.example.lton to config.lton and fill in the EOS deployment settings"
 }
+
 let^client = eos.create(settings) catch^panic^it^
 var^status = "Logging in with Steam..."
 var^joined = false^
@@ -19,12 +21,15 @@ var^sequence = 0
 var^lastPacket = "No packets yet"
 var^leaving = false^
 var^quitElapsed = 0
+
 let^login = p^{
     # The Steam integration writes the hex ticket without whitespace or a BOM.
     let^ticket = love.filesystem.read("steam-ticket.txt") catch^panic^it^
     client.loginSteam(ticket) catch^panic^it^
 }
+
 public^let^load = p^{ login() }
+
 public^let^update = p^dt:number^{
     client.tick() catch^panic^it^
     repeat^{
@@ -90,12 +95,14 @@ public^let^update = p^dt:number^{
         }
     }
 }
+
 public^let^draw = p^{
     love.graphics.print("EOS for L^ - two-player P2P probe",20,20)
     love.graphics.print(status,20,50)
     love.graphics.print(lastPacket,20,80)
     love.graphics.print("S: search, R: refresh Steam ticket, Esc: leave and quit",20,110)
 }
+
 public^let^keypressed = p^key:love.keyboard.Key,scan:love.keyboard.Scancode,repeated:bool^{
     if^key = love.keyboard.Key.r { login() }
     if^key = love.keyboard.Key.s { client.search(settings.bucket,20) catch^panic^it^ }
@@ -104,6 +111,7 @@ public^let^keypressed = p^key:love.keyboard.Key,scan:love.keyboard.Scancode,repe
         if^joined { client.leave() catch^panic^it^ }
     }
 }
+
 public^let^quit = p^-> bool^{
     client.close() catch^panic^it^
     return^false^
