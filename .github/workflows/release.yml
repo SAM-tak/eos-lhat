@@ -1,0 +1,121 @@
+name: Windows release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+jobs:
+  build:
+    name: Windows x64 / Release and tests
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout bindings
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Read dependency revisions
+        id: revisions
+        run: |
+          foreach ($dependency in @('lhat', 'eos-sdk')) {
+            $revision = (Get-Content -Raw "$dependency.rev").Trim()
+            if ($revision -cnotmatch '^[0-9a-f]{40}$') {
+              throw "Invalid revision in $dependency.rev"
+            }
+            "$dependency=$revision" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Check SDK access configuration
+        env:
+          SDK_TOKEN: ${{ secrets.EOS_SDK_READ_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SDK_TOKEN)) {
+            throw 'Set EOS_SDK_READ_TOKEN in the eos-lhat repository Actions secrets.'
+          }
+
+      - name: Checkout L^
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: SAM-tak/lhat
+          ref: ${{ steps.revisions.outputs.lhat }}
+          path: build-deps/lhat
+          persist-credentials: false
+
+      - name: Checkout private EOS SDK
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: SAM-tak/eos-sdk-private
+          ref: ${{ steps.revisions.outputs.eos-sdk }}
+          token: ${{ secrets.EOS_SDK_READ_TOKEN }}
+          path: EOSSDK
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+
+      - name: Build, embed signatures and test full/VM-only hosts
+        env:
+          CMAKE_GENERATOR: Visual Studio 17 2022
+          CMAKE_GENERATOR_PLATFORM: x64
+        run: |
+          ./scripts/build.ps1 -Lhat "$PWD/build-deps/lhat" -Sdk "$PWD/EOSSDK/SDK" -Test
+
+      - name: Stage the release DLL
+        run: |
+          cmake --install build --config Release --prefix build/package
+          if ($LASTEXITCODE -ne 0) { throw 'Install failed' }
+          $files = @(Get-ChildItem -LiteralPath build/package -Recurse -File)
+          if ($files.Count -ne 1 -or $files[0].Name -cne 'eos_lhat.dll') {
+            throw 'The release package must contain only eos_lhat.dll'
+          }
+
+      - name: Upload Windows x64 DLL
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: eos-lhat-windows-x64
+          path: build/package/native/eos_lhat.dll
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish tagged release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download tested DLL
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: eos-lhat-windows-x64
+          path: release
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release/eos_lhat.dll --clobber
+          else
+            gh release create "$RELEASE_TAG" release/eos_lhat.dll --verify-tag --generate-notes
+          fi

@@ -23,6 +23,16 @@ DLLと、lhat本体だけをリンクする小さなツール`eos_lhat_host`を�
 
 配置が異なる場合は`-Lhat`、`-Sdk`、`-Build`を指定する。`-Test`はネイティブテストに加えてL^の統合テストも実行し、`LHAT_WITH_FRONTEND=OFF`のVM専用テストホストも自動ビルドする。Linux/macOS向けCMake設定もあるが、現段階では未ビルド・未検証。詳しいCMakeコマンドは英語版READMEを参照。`BUILD_TESTING=OFF`でテスト用DLLを除外できる。`cmake --install build --config Release --prefix dist`のインストール対象は本物の拡張DLLだけ。Windowsの配布物は **`eos_lhat.dll`のみ**。`.lib`、`.exp`、ツール、`eos_lhat_mock.dll`は配布しない。mockはEOSサービスへ接続せずに動作を再現する自動テスト用。利用者はEOSランタイムを別途用意する。
 
+## GitHub Actions
+
+`.github/workflows/release.yml`は`windows-2022`でWindows x64のReleaseをビルドする。LÔVEは不要。mainへのpushと手動実行で、ネイティブテスト・フル版／VM専用版の統合テスト・Programのrestartテストまで実行する。成功時のArtifact名は`eos-lhat-windows-x64`で、中身は`eos_lhat.dll`だけ。
+
+`v*`タグをpushすると、同じ検証後にGitHub Releaseを作成し、DLLを添付する。タグのworkflowを再実行すると同じタグのDLLを差し替える。mainや手動実行ではReleaseを公開しない。GitHubが自動生成するソースアーカイブはDLLの添付ファイルとは別。
+
+依存先は`lhat.rev`と`eos-sdk.rev`の40桁コミットIDで固定している。更新時は各リポジトリへpush済みのコミットを指定する。生成したDLLのL^の版・ABI設定は利用先のホストと一致させる。
+
+SDKは`SAM-tak/eos-sdk-private`から`EOSSDK`へcheckoutする。**eos-lhatリポジトリ側**のSettings → Secrets and variables → Actionsに、Repository secretとして`EOS_SDK_READ_TOKEN`を登録する。トークンはSDKリポジトリだけを対象にしたfine-grained PATで、`Contents: Read-only`を付与する。SDKリポジトリ内には`SDK/Include`・`SDK/Lib`・`SDK/Bin`を配置する。pull requestでは実行せず、SDK・mock DLL・インポートライブラリ・ツールはアップロードしない。
+
 ## エディタ用の型情報
 
 今回の `--extension` 対応を含むフル版lhat-cliなら、ゲームを起動せずEOSの定義をJSONへ追加できる。eos-lhatディレクトリから実行する例:

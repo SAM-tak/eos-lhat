@@ -35,6 +35,16 @@ python tests/test_lhat.py --lhat /path/to/lhat --sdk /path/to/SDK
 
 Linux/macOS build paths are provided but have not been built or tested here. Set `BUILD_TESTING=OFF` for a production-only build. `cmake --install build --config Release --prefix dist` installs only the real extension. On Windows, the release artifact is **`eos_lhat.dll` only**; `.lib`, `.exp`, tooling executables and `eos_lhat_mock.dll` are not distributed. The mock replaces EOS for deterministic tests and cannot connect to real EOS services. Users supply the EOS runtime separately.
 
+## GitHub Actions
+
+`.github/workflows/release.yml` builds Windows x64 Release on `windows-2022`, without LÔVE. Pushes to `main` and manual runs execute native tests plus full/VM-only L^ integration tests, including Program restarts. Successful runs upload the `eos-lhat-windows-x64` artifact containing only `eos_lhat.dll`.
+
+Pushing a `v*` tag runs the same checks and creates a GitHub Release with the tested DLL attached. Re-running the tagged workflow replaces that tag's DLL asset. Main-branch and manual runs do not publish Releases. GitHub's automatic source archives are separate from the DLL asset.
+
+Dependencies are pinned by the 40-character commit IDs in `lhat.rev` and `eos-sdk.rev`. Update these files when upgrading L^ or the SDK, using commits already pushed to the corresponding repositories. The generated extension must match the consuming host's L^ version and ABI configuration.
+
+The workflow checks out `SAM-tak/eos-sdk-private` into `EOSSDK`. Configure **`EOS_SDK_READ_TOKEN` in the eos-lhat repository's Actions repository secrets**, using a fine-grained token with `Contents: Read-only` access to that SDK repository. The SDK repository must contain `SDK/Include`, `SDK/Lib`, and `SDK/Bin`. The workflow does not run on pull requests and does not upload SDK files, mock DLLs, import libraries or tooling executables.
+
 ## Editor type information
 
 With the full lhat CLI containing `--extension` support, run from this repository:
