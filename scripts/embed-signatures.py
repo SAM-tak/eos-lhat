@@ -32,7 +32,8 @@ def main():
             shutil.copy2(dep, work / dep.name)
         binary = work / 'signatures.bin'
         env = dict(os.environ)
-        env['PATH'] = str(work) + os.pathsep + env.get('PATH', '')
+        loader_path = 'PATH' if sys.platform == 'win32' else 'DYLD_LIBRARY_PATH' if sys.platform == 'darwin' else 'LD_LIBRARY_PATH'
+        env[loader_path] = str(work) + os.pathsep + env.get(loader_path, '')
         run(host.resolve(), 'signatures', work / library.name, binary, env=env, cwd=work)
         data = binary.read_bytes()
         header = a.build / 'generated/eos_signatures.h'

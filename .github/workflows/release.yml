@@ -1,4 +1,4 @@
-name: Windows release
+name: Native releases
 
 on:
   push:
@@ -15,8 +15,24 @@ concurrency:
 
 jobs:
   build:
-    name: Windows x64 / Release and tests
-    runs-on: windows-2022
+    name: ${{ matrix.platform }} / Release and tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-2022
+            library: eos_lhat.dll
+          - platform: linux-x64
+            runner: ubuntu-22.04
+            library: eos_lhat.so
+          - platform: macos-arm64
+            runner: macos-15
+            library: eos_lhat.dylib
+          - platform: macos-x64
+            runner: macos-15-intel
+            library: eos_lhat.dylib
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     defaults:
       run:
@@ -68,27 +84,43 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Build, embed signatures and test full/VM-only hosts
+      - name: Build and test Windows
+        if: runner.os == 'Windows'
         env:
           CMAKE_GENERATOR: Visual Studio 17 2022
           CMAKE_GENERATOR_PLATFORM: x64
         run: |
           ./scripts/build.ps1 -Lhat "$PWD/build-deps/lhat" -Sdk "$PWD/EOSSDK/SDK" -Test
 
-      - name: Stage the release DLL
+      - name: Build and test Linux/macOS
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+            -DLHAT_ROOT="$PWD/build-deps/lhat" -DEOS_SDK_ROOT="$PWD/EOSSDK/SDK"
+          cmake --build build --config Release --parallel 2
+          python scripts/embed-signatures.py
+          ctest --test-dir build -C Release --output-on-failure
+          python tests/test_lhat.py --lhat "$PWD/build-deps/lhat"
+
+      - name: Stage the release library
         run: |
           cmake --install build --config Release --prefix build/package
           if ($LASTEXITCODE -ne 0) { throw 'Install failed' }
           $files = @(Get-ChildItem -LiteralPath build/package -Recurse -File)
-          if ($files.Count -ne 1 -or $files[0].Name -cne 'eos_lhat.dll') {
-            throw 'The release package must contain only eos_lhat.dll'
+          if ($files.Count -ne 1 -or $files[0].Name -cne '${{ matrix.library }}') {
+            throw 'The release package must contain only ${{ matrix.library }}'
           }
 
-      - name: Upload Windows x64 DLL
+      - name: Test installed library and relative SDK lookup
+        run: |
+          python tests/test_lhat.py --lhat "$PWD/build-deps/lhat" --installed "$PWD/build/package/native/${{ matrix.library }}"
+
+      - name: Upload tested library
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: eos-lhat-windows-x64
-          path: build/package/native/eos_lhat.dll
+          name: eos-lhat-${{ matrix.platform }}
+          path: build/package/native/${{ matrix.library }}
           if-no-files-found: error
           retention-days: 14
 
@@ -101,10 +133,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download tested DLL
+      - name: Download tested libraries
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: eos-lhat-windows-x64
+          pattern: eos-lhat-*
           path: release
 
       - name: Create GitHub Release
@@ -114,8 +146,13 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         shell: bash
         run: |
+          cp release/eos-lhat-windows-x64/eos_lhat.dll release/eos_lhat.dll
+          cp release/eos-lhat-linux-x64/eos_lhat.so release/eos_lhat.so
+          cp release/eos-lhat-macos-arm64/eos_lhat.dylib release/eos_lhat-macos-arm64.dylib
+          cp release/eos-lhat-macos-x64/eos_lhat.dylib release/eos_lhat-macos-x64.dylib
+          assets=(release/*.dll release/*.so release/*.dylib)
           if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" release/eos_lhat.dll --clobber
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
           else
-            gh release create "$RELEASE_TAG" release/eos_lhat.dll --verify-tag --generate-notes
+            gh release create "$RELEASE_TAG" "${assets[@]}" --verify-tag --generate-notes
           fi

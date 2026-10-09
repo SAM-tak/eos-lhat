@@ -1,6 +1,7 @@
 """Test EOS bindings and whole-Program restarts using only full and VM-only L^."""
 import argparse
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -21,6 +22,7 @@ def main():
     p.add_argument('--build', type=Path, default=ROOT / 'build')
     p.add_argument('--sdk', type=Path, default=ROOT / 'EOSSDK/SDK')
     p.add_argument('--config', default='Release')
+    p.add_argument('--installed', type=Path, help='Test an installed real extension with its SDK placed beside it')
     a = p.parse_args()
     a.build = a.build.resolve()
     host = (a.host or executable(a.build / 'tools', a.config)).resolve()
@@ -37,12 +39,23 @@ def main():
     with tempfile.TemporaryDirectory(prefix='eos-integration-') as tmp:
         root = Path(tmp)
         env = dict(os.environ)
-        env['PATH'] = str((a.sdk / 'Bin').resolve()) + os.pathsep + env.get('PATH', '')
+        loader_path = 'PATH' if sys.platform == 'win32' else 'DYLD_LIBRARY_PATH' if sys.platform == 'darwin' else 'LD_LIBRARY_PATH'
+        env[loader_path] = str((a.sdk / 'Bin').resolve()) + os.pathsep + env.get(loader_path, '')
         for library, source in [('eos_lhat', 'smoke.lh'), ('eos_lhat_mock', 'integration.lh')]:
             binary = next(x for x in [a.build / a.config / (library + suffix),
                                       a.build / (library + suffix)] if x.exists())
             work = root / library
             work.mkdir()
+            if a.installed:
+                # Relocate outside the build tree and remove SDK search overrides.
+                source_binary = a.installed.resolve() if library == 'eos_lhat' else binary
+                binary = work / source_binary.name
+                shutil.copy2(source_binary, binary)
+                for dep in (a.sdk / 'Bin').glob('*' + suffix):
+                    shutil.copy2(dep, work / dep.name)
+                env = dict(os.environ)
+                env.pop('LD_LIBRARY_PATH', None)
+                env.pop('DYLD_LIBRARY_PATH', None)
             lifetime = work / 'lifetime.log'
             env['EOS_LHAT_TEST_LIFETIME'] = str(lifetime)
 
