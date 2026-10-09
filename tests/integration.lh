@@ -1,0 +1,64 @@
+module^eosIntegration
+import^eos
+
+let^config = {productId="product",sandboxId="sandbox",deploymentId="deployment",clientId="client",clientSecret="secret",cacheDirectory="cache",socketName="test"}
+let^check = p^value:bool^,message:string^{ if^value = false^ { panic^message } }
+let^drain = p^client:eos.Client{
+    repeat^{
+        let^event = client.poll() catch^panic^it^
+        if^event fits^nil^{ break^ }
+        check(event.ok, event.code)
+        check(event.kind != eos.EventKind.overflow,"Event queue overflow")
+    }
+}
+public^let^run = p^{
+    let^a = eos.create(config) catch^panic^it^
+    let^b = eos.create(config) catch^panic^it^
+    check(a.loginSteam("bad") fits^eos.Error,"Bad ticket rejected")
+    let^login = a.loginSteam("aabb") catch^panic^it^
+    b.loginSteam("ccdd") catch^panic^it^
+    a.tick() catch^panic^it^
+    b.tick() catch^panic^it^
+    let^logged = a.poll() catch^panic^it^
+    if^logged fits^nil^{ panic^"Missing login event" }
+    check(logged.kind = eos.EventKind.login and^logged.ok and^logged.request = login,"Typed login event")
+    drain(b)
+    a.createLobby("duel-v1",2) catch^panic^it^
+    a.tick() catch^panic^it^
+    drain(a)
+    b.search("duel-v1",10) catch^panic^it^
+    b.tick() catch^panic^it^
+    drain(b)
+    let^rooms = b.results() catch^panic^it^
+    check(rooms.length^ = 1,"Found lobby")
+    let^room = rooms[0]
+    if^room fits^nil^{ panic^"Missing room" }
+    b.join(room.id) catch^panic^it^
+    b.tick() catch^panic^it^
+    a.tick() catch^panic^it^
+    drain(a)
+    drain(b)
+    let^peers = a.members() catch^panic^it^
+    check(peers.length^ = 2,"Two lobby members")
+    let^aid = a.userId() catch^panic^it^
+    let^bid = b.userId() catch^panic^it^
+    a.relay(eos.Relay.always) catch^panic^it^
+    a.send(bid,"\0\xFF\0",7,eos.Reliability.reliableOrdered) catch^panic^it^
+    let^packet = b.receive() catch^panic^it^
+    if^packet fits^nil^{ panic^"Missing packet" }
+    check(packet.data = "\0\xFF\0" and^packet.channel = 7 and^packet.peerId = aid,"Binary packet")
+    b.send(aid,"reply",0,eos.Reliability.unreliable) catch^panic^it^
+    let^reply = a.receive() catch^panic^it^
+    if^reply fits^nil^{ panic^"Missing reply" }
+    check(reply.data = "reply","Reply")
+    check(a.send(bid,"x",256,eos.Reliability.unreliable) fits^eos.Error,"Channel range")
+    b.leave() catch^panic^it^
+    b.tick() catch^panic^it^
+    a.tick() catch^panic^it^
+    check(a.send(bid,"x",0,eos.Reliability.unreliable) fits^eos.Error,"Former peer rejected")
+    a.close() catch^panic^it^
+    a.close() catch^panic^it^
+    check(a.tick() fits^eos.Error,"Closed client rejected")
+    print("PASS: L^ EOS lobby/P2P bindings")
+    return^0
+}

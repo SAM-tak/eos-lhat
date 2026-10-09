@@ -1,0 +1,15 @@
+module^eosSmoke
+import^eos
+public^let^run = p^{
+    let^client = eos.create({productId="",sandboxId="",deploymentId="",clientId="",clientSecret="",cacheDirectory="cache",socketName="test"})
+    if^client fits^eos.Error {
+        let^config = {productId="11111111111111111111111111111111",sandboxId="22222222222222222222222222222222",deploymentId="33333333333333333333333333333333",clientId="44444444444444444444444444444444",clientSecret="55555555555555555555555555555555",cacheDirectory="cache",socketName="test"}
+        let^a = eos.create(config) catch^panic^it^
+        a.close() catch^panic^it^
+        let^b = eos.create(config) catch^panic^it^
+        b.close() catch^panic^it^
+        print("PASS: real EOS SDK registration, validation, platform recreation and shutdown")
+        return^0
+    }
+    return^1
+}

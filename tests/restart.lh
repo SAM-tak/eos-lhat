@@ -1,0 +1,13 @@
+module^eosRestart
+import^eos
+import^love.event
+let^config = {productId="11111111111111111111111111111111",sandboxId="22222222222222222222222222222222",deploymentId="33333333333333333333333333333333",clientId="44444444444444444444444444444444",clientSecret="55555555555555555555555555555555",cacheDirectory="cache",socketName="test"}
+let^client = eos.create(config) catch^panic^it^
+public^let^load = p^{
+    client.close() catch^panic^it^
+    if^love.event.restartValue() fits^nil^ {
+        love.event.restart(1)
+    else^:
+        love.event.quit(0)
+    }
+}

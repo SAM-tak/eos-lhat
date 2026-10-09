@@ -1,0 +1,3 @@
+# The EOS binding itself has no graphics dependency.
+window = {title = "EOS for L^", width = 900, height = 180},
+modules = {audio = false^}

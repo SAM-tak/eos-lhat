@@ -1,0 +1,110 @@
+module^eosDuel
+import^eos
+import^std.lton
+import^love.filesystem
+import^love.graphics
+import^love.keyboard
+import^love.event
+
+let^settings = std.lton.load("config.lton") catch^panic^it^
+if^!(settings fits^t^{productId:string^,sandboxId:string^,deploymentId:string^,clientId:string^,clientSecret:string^,cacheDirectory:string^,socketName:string^,host:bool^,bucket:string^}) {
+    panic^"Copy config.example.lton to config.lton and fill in the EOS deployment settings"
+}
+let^client = eos.create(settings) catch^panic^it^
+var^status = "Logging in with Steam..."
+var^joined = false^
+var^initialLogin = true^
+var^elapsed = 0
+var^sequence = 0
+var^lastPacket = "No packets yet"
+var^leaving = false^
+var^quitElapsed = 0
+let^login = p^{
+    # The Steam integration writes the hex ticket without whitespace or a BOM.
+    let^ticket = love.filesystem.read("steam-ticket.txt") catch^panic^it^
+    client.loginSteam(ticket) catch^panic^it^
+}
+public^let^load = p^{ login() }
+public^let^update = p^dt:number^{
+    client.tick() catch^panic^it^
+    repeat^{
+        let^event = client.poll() catch^panic^it^
+        if^event fits^nil^{ break^ }
+        status := $"{event.kind}: {event.code}"
+        print(status)
+        if^!event.ok { continue^ }
+        if^event.kind = eos.EventKind.login and^initialLogin {
+            initialLogin := false^
+            if^settings.host {
+                client.createLobby(settings.bucket,2) catch^panic^it^
+            else^:
+                client.search(settings.bucket,20) catch^panic^it^
+            }
+        }
+        if^event.kind = eos.EventKind.search {
+            let^rooms = client.results() catch^panic^it^
+            let^room = rooms[0]
+            if^room fits^nil^ {
+                status := "No lobby found. Press S to search again."
+            else^:
+                client.join(room.id) catch^panic^it^
+            }
+        }
+        if^event.kind = eos.EventKind.created or^event.kind = eos.EventKind.joined {
+            joined := true^
+            let^id = client.userId() catch^panic^it^
+            print($"Local product user: {id}")
+        }
+        if^event.kind = eos.EventKind.authExpired {
+            status := "Obtain a fresh Steam ticket, replace steam-ticket.txt, then press R."
+        }
+        if^event.kind = eos.EventKind.left or^event.kind = eos.EventKind.lobbyClosed or^event.kind = eos.EventKind.loggedOut {
+            joined := false^
+        }
+    }
+    if^leaving {
+        quitElapsed += dt
+        if^!joined or^quitElapsed > 5 { love.event.quit() }
+        return^
+    }
+    if^joined {
+        elapsed += dt
+        if^elapsed > 0.5 {
+            elapsed := 0
+            sequence += 1
+            let^peers = client.members() catch^panic^it^
+            let^me = client.userId() catch^panic^it^
+            for^peer in^peers {
+                if^peer != me {
+                    client.send(peer,$"input:{sequence}",0,eos.Reliability.unreliable) catch^panic^it^
+                }
+            }
+        }
+        var^packetBudget = 64
+        repeat^{
+            if^packetBudget = 0 { break^ }
+            packetBudget -= 1
+            let^packet = client.receive() catch^panic^it^
+            if^packet fits^nil^{ break^ }
+            lastPacket := $"{packet.peerId}: {packet.data}"
+        }
+    }
+}
+public^let^draw = p^{
+    love.graphics.print("EOS for L^ - two-player P2P probe",20,20)
+    love.graphics.print(status,20,50)
+    love.graphics.print(lastPacket,20,80)
+    love.graphics.print("S: search, R: refresh Steam ticket, Esc: leave and quit",20,110)
+}
+public^let^keypressed = p^key:love.keyboard.Key,scan:love.keyboard.Scancode,repeated:bool^{
+    if^key = love.keyboard.Key.r { login() }
+    if^key = love.keyboard.Key.s { client.search(settings.bucket,20) catch^panic^it^ }
+    if^key = love.keyboard.Key.escape {
+        leaving := true^
+        if^joined { client.leave() catch^panic^it^ }
+    }
+}
+public^let^quit = p^-> bool^{
+    client.close() catch^panic^it^
+    return^false^
+}

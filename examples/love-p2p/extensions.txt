@@ -1,0 +1,2 @@
+# EOS runtime DLL must also be discoverable by the operating system loader.
+native/eos_lhat

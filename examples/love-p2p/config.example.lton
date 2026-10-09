@@ -1,0 +1,10 @@
+# Copy to config.lton locally. Do not commit credentials or tickets.
+productId = "YOUR_PRODUCT_ID",
+sandboxId = "YOUR_SANDBOX_ID",
+deploymentId = "YOUR_DEPLOYMENT_ID",
+clientId = "YOUR_CLIENT_ID",
+clientSecret = "YOUR_CLIENT_SECRET",
+cacheDirectory = "C:/path/to/writable/eos-cache",
+socketName = "duel-v1",
+bucket = "duel-v1-region-test",
+host = true^

@@ -53,3 +53,23 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+.vscode
+.vs
+
+# Epic Online Service SDK source
+EOSSDK/
+
+TechDocs/
+AGENT.md
+CLAUDE.md
+
+# Local build and test artifacts
+/build*/
+__pycache__/
+*.log
+/examples/love-p2p/config.lton
+/examples/love-p2p/steam-ticket.txt
+/examples/love-p2p/native/
+
+/lhat-host.json
