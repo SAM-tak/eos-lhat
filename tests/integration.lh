@@ -67,6 +67,16 @@ public^let^run = p^{
     b.tick() catch^panic^it^
     a.tick() catch^panic^it^
     check(a.send(bid,"x",0,eos.Reliability.unreliable) fits^eos.Error,"Former peer rejected")
+    let^epic = eos.create(config) catch^panic^it^
+    check(epic.loginEpicExchange("") fits^eos.Error,"Empty exchange code rejected")
+    let^epicLogin = epic.loginEpicDeveloper("localhost:6547","dev") catch^panic^it^
+    epic.tick() catch^panic^it^
+    epic.tick() catch^panic^it^
+    let^epicEvent = epic.poll() catch^panic^it^
+    if^epicEvent fits^nil^{ panic^"Missing Epic login event" }
+    check(epicEvent.kind = eos.EventKind.login and^epicEvent.ok and^epicEvent.request = epicLogin,"Epic login")
+    check(epic.forgetEpic() fits^eos.Error,"Forget requires an idle client")
+    epic.close() catch^panic^it^
     a.close() catch^panic^it^
     a.close() catch^panic^it^
     check(a.tick() fits^eos.Error,"Closed client rejected")

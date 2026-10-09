@@ -77,7 +77,7 @@ def main():
                 # One SDK lifetime per process, zero live platforms at shutdown;
                 # all three restarted Programs must have released their clients.
                 assert lifetime.read_text().splitlines() == [
-                    '1 1 0 2', '1 1 0 2', '1 1 0 3', '1 1 0 3'
+                    '1 1 0 3', '1 1 0 3', '1 1 0 3', '1 1 0 3'
                 ], 'Incorrect SDK/platform lifecycle across Program restarts'
     print('PASS: full and VM-only L^, real SDK smoke, mocked multiplayer, Program restarts')
 

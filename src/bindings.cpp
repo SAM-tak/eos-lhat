@@ -13,10 +13,15 @@ using namespace eos_lhat;
 const LhatExtensionAPI *api;
 const LhatHostDataTag *clientTag;
 const LhatErrorKind *errorKind;
-const char *const eventNames[] = {"login",       "search",       "created",    "joined",
-                                  "left",        "memberJoined", "memberLeft", "ownerChanged",
-                                  "lobbyClosed", "authExpired",  "loggedOut",  "peerClosed",
-                                  "overflow",    "internalError"};
+const char *const eventNames[] = {"login",         "search",       "created",    "joined",
+                                  "left",          "memberJoined", "memberLeft", "ownerChanged",
+                                  "lobbyClosed",   "authExpired",  "loggedOut",  "epicForgotten",
+                                  "peerClosed",    "overflow",     "internalError"};
+bool boolean(LhatValue v) {
+    if (!lhat_is_bool(v))
+        throw Failure("Expected a bool");
+    return lhat_as_bool(v);
+}
 std::string string(LhatValue v) {
     if (!lhat_is_object_kind(v, LHAT_OBJECT_STRING))
         throw Failure("Expected a string");
@@ -147,6 +152,18 @@ LhatValue loginSteam(LhatMachine *, const LhatValue *a) {
 LhatValue loginDevice(LhatMachine *, const LhatValue *a) {
     return lhat_integer(client(a[0]).loginDevice(string(a[1])));
 }
+LhatValue loginEpic(LhatMachine *, const LhatValue *a) {
+    return lhat_integer(client(a[0]).loginEpic(boolean(a[1])));
+}
+LhatValue loginEpicExchange(LhatMachine *, const LhatValue *a) {
+    return lhat_integer(client(a[0]).loginEpicExchange(string(a[1])));
+}
+LhatValue loginEpicDeveloper(LhatMachine *, const LhatValue *a) {
+    return lhat_integer(client(a[0]).loginEpicDeveloper(string(a[1]), string(a[2])));
+}
+LhatValue forgetEpic(LhatMachine *, const LhatValue *a) {
+    return lhat_integer(client(a[0]).forgetEpic());
+}
 LhatValue createLobby(LhatMachine *, const LhatValue *a) {
     return lhat_integer(client(a[0]).createLobby(string(a[1]), integer(a[2], 64)));
 }
@@ -239,6 +256,10 @@ const char *install(const LhatExtensionAPI *host, LhatProgram *program, uint32_t
                  "peerId:string^}|nil^|eos.Error;");
     MEMBER(loginSteam, "p^self^,string^ -> number^|eos.Error;");
     MEMBER(loginDevice, "p^self^,string^ -> number^|eos.Error;");
+    MEMBER(loginEpic, "p^self^,bool^ -> number^|eos.Error;");
+    MEMBER(loginEpicExchange, "p^self^,string^ -> number^|eos.Error;");
+    MEMBER(loginEpicDeveloper, "p^self^,string^,string^ -> number^|eos.Error;");
+    MEMBER(forgetEpic, "p^self^ -> number^|eos.Error;");
     MEMBER(createLobby, "p^self^,string^,number^ -> number^|eos.Error;");
     MEMBER(search, "p^self^,string^,number^ -> number^|eos.Error;");
     MEMBER(join, "p^self^,string^ -> number^|eos.Error;");

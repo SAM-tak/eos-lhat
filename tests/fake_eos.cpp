@@ -13,6 +13,9 @@ using R = EOS_EResult;
 struct EOS_ProductUserIdDetails {
     std::string id;
 };
+struct EOS_EpicAccountIdDetails {
+    std::string id;
+};
 struct Wire {
     EOS_ProductUserId peer;
     std::string socket, data;
@@ -20,6 +23,7 @@ struct Wire {
 };
 struct FakePlatform {
     EOS_ProductUserId user;
+    EOS_EpicAccountId epic = nullptr;
     std::deque<std::function<void()>> work;
     std::deque<Wire> packets;
     void *authContext = nullptr, *statusContext = nullptr, *memberContext = nullptr,
@@ -47,7 +51,9 @@ std::map<std::string, std::unique_ptr<EOS_ProductUserIdDetails>> users;
 std::vector<FakePlatform *> platforms;
 std::map<std::string, Room> rooms;
 int initializations = 0, shutdowns = 0, releases = 0, accepts = 0, closes = 0;
-bool invalidUser = false, failSearch = false;
+bool invalidUser = false, failSearch = false, persistentAuth = false;
+int authLogins = 0, portalLogins = 0, idTokens = 0;
+EOS_EpicAccountIdDetails epicAccount{"epic"};
 int userSerial = 0;
 template <class H> FakePlatform *p(H h) {
     return reinterpret_cast<FakePlatform *>(h);
@@ -128,6 +134,9 @@ void EOS_CALL EOS_Platform_Tick(EOS_HPlatform h) {
     for (auto &f : work)
         f();
 }
+EOS_HAuth EOS_CALL EOS_Platform_GetAuthInterface(EOS_HPlatform h) {
+    return reinterpret_cast<EOS_HAuth>(h);
+}
 EOS_HConnect EOS_CALL EOS_Platform_GetConnectInterface(EOS_HPlatform h) {
     return reinterpret_cast<EOS_HConnect>(h);
 }
@@ -155,8 +164,11 @@ void EOS_CALL EOS_Connect_Login(EOS_HConnect h, const EOS_Connect_LoginOptions *
                                 EOS_Connect_OnLoginCallback cb) {
     auto *p = fake::p(h);
     auto type = o->Credentials->Type;
-    if (type != EOS_EExternalCredentialType::EOS_ECT_STEAM_SESSION_TICKET &&
-        type != EOS_EExternalCredentialType::EOS_ECT_DEVICEID_ACCESS_TOKEN)
+    if (type == EOS_EExternalCredentialType::EOS_ECT_EPIC_ID_TOKEN) {
+        if (std::strcmp(o->Credentials->Token, "jwt") || o->UserLoginInfo)
+            std::abort();
+    } else if (type != EOS_EExternalCredentialType::EOS_ECT_STEAM_SESSION_TICKET &&
+               type != EOS_EExternalCredentialType::EOS_ECT_DEVICEID_ACCESS_TOKEN)
         std::abort();
     p->work.push_back([p, data, cb] {
         EOS_Connect_LoginCallbackInfo i{};
@@ -165,6 +177,61 @@ void EOS_CALL EOS_Connect_Login(EOS_HConnect h, const EOS_Connect_LoginOptions *
         i.ResultCode = fake::invalidUser ? R::EOS_InvalidUser : R::EOS_Success;
         i.ContinuanceToken = reinterpret_cast<EOS_ContinuanceToken>(p);
         fake::invalidUser = false;
+        cb(&i);
+    });
+}
+void EOS_CALL EOS_Auth_Login(EOS_HAuth h, const EOS_Auth_LoginOptions *o, void *data,
+                             EOS_Auth_OnLoginCallback cb) {
+    using T = EOS_ELoginCredentialType;
+    auto *p = fake::p(h);
+    auto type = o->Credentials->Type;
+    if (o->ScopeFlags != EOS_EAuthScopeFlags::EOS_AS_BasicProfile ||
+        (type == T::EOS_LCT_PersistentAuth) != (o->LoginFlags == EOS_LF_NO_USER_INTERFACE))
+        std::abort();
+    auto result = R::EOS_Success;
+    if (type == T::EOS_LCT_PersistentAuth && !fake::persistentAuth)
+        result = R::EOS_NotFound;
+    else if (type == T::EOS_LCT_ExchangeCode && std::strcmp(o->Credentials->Token, "code"))
+        result = R::EOS_InvalidAuth;
+    else if (type == T::EOS_LCT_Developer && (std::strcmp(o->Credentials->Id, "localhost:6547") ||
+                                              std::strcmp(o->Credentials->Token, "dev")))
+        result = R::EOS_InvalidAuth;
+    else if (type == T::EOS_LCT_AccountPortal) {
+        ++fake::portalLogins;
+        fake::persistentAuth = true;
+    }
+    ++fake::authLogins;
+    p->work.push_back([p, result, data, cb] {
+        EOS_Auth_LoginCallbackInfo i{};
+        i.ResultCode = result;
+        i.ClientData = data;
+        if (result == R::EOS_Success)
+            i.LocalUserId = i.SelectedAccountId = p->epic = &fake::epicAccount;
+        cb(&i);
+    });
+}
+EOS_ELoginStatus EOS_CALL EOS_Auth_GetLoginStatus(EOS_HAuth h, EOS_EpicAccountId id) {
+    return id && fake::p(h)->epic == id ? EOS_ELoginStatus::EOS_LS_LoggedIn
+                                         : EOS_ELoginStatus::EOS_LS_NotLoggedIn;
+}
+EOS_EResult EOS_CALL EOS_Auth_CopyIdToken(EOS_HAuth h, const EOS_Auth_CopyIdTokenOptions *o,
+                                          EOS_Auth_IdToken **out) {
+    if (!o->AccountId || fake::p(h)->epic != o->AccountId)
+        return R::EOS_NotFound;
+    ++fake::idTokens;
+    *out = new EOS_Auth_IdToken{EOS_AUTH_IDTOKEN_API_LATEST, o->AccountId, "jwt"};
+    return R::EOS_Success;
+}
+void EOS_CALL EOS_Auth_IdToken_Release(EOS_Auth_IdToken *token) {
+    delete token;
+}
+void EOS_CALL EOS_Auth_DeletePersistentAuth(EOS_HAuth h, const EOS_Auth_DeletePersistentAuthOptions *o,
+                                            void *data, EOS_Auth_OnDeletePersistentAuthCallback cb) {
+    if (o->RefreshToken)
+        std::abort();
+    fake::p(h)->work.push_back([data, cb] {
+        fake::persistentAuth = false;
+        EOS_Auth_DeletePersistentAuthCallbackInfo i{R::EOS_Success, data};
         cb(&i);
     });
 }

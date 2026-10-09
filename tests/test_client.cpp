@@ -4,7 +4,8 @@
 #include <cstdlib>
 namespace fake {
 extern int initializations, shutdowns, releases, accepts, closes;
-extern bool invalidUser, failSearch;
+extern bool invalidUser, failSearch, persistentAuth;
+extern int authLogins, portalLogins, idTokens;
 void expire(EOS_ProductUserId);
 void request(EOS_ProductUserId, EOS_ProductUserId, std::string);
 } // namespace fake
@@ -119,7 +120,46 @@ int main() {
         c.loginDevice("Developer");
         check(wait(c, EventKind::Login).ok, "Existing Device ID login");
     }
-    check(fake::initializations == 1 && fake::shutdowns == 0 && fake::releases == 3,
+    {
+        Client c(config);
+        refused([&] { c.loginEpicExchange(""); });
+        c.loginEpic(false);
+        check(!wait(c, EventKind::Login).ok && fake::portalLogins == 0,
+              "Silent Epic login fails without a stored token");
+        auto request = c.loginEpic(true);
+        refused([&] { c.loginEpic(true); });
+        auto e = wait(c, EventKind::Login);
+        check(e.ok && e.request == request && fake::portalLogins == 1 && fake::persistentAuth,
+              "Account Portal fallback");
+        refused([&] { c.forgetEpic(); });
+        auto logins = fake::authLogins;
+        fake::expire(EOS_ProductUserId_FromString(c.userId().c_str()));
+        wait(c, EventKind::AuthExpired);
+        c.loginEpic(false);
+        check(wait(c, EventKind::Login).ok && fake::authLogins == logins && fake::idTokens == 2,
+              "Connect refresh reuses the Epic session");
+    }
+    {
+        Client c(config);
+        c.loginEpic(false);
+        check(wait(c, EventKind::Login).ok && fake::portalLogins == 1, "Persistent Epic login");
+    }
+    {
+        Client c(config);
+        auto request = c.forgetEpic();
+        auto e = wait(c, EventKind::EpicForgotten);
+        check(e.ok && e.request == request && !fake::persistentAuth, "Forget persistent Epic login");
+        c.loginEpicExchange("expired");
+        check(!wait(c, EventKind::Login).ok, "Exchange code error propagated");
+        c.loginEpicExchange("code");
+        check(wait(c, EventKind::Login).ok, "Exchange code login");
+    }
+    {
+        Client c(config);
+        c.loginEpicDeveloper("localhost:6547", "dev");
+        check(wait(c, EventKind::Login).ok, "Developer Auth Tool login");
+    }
+    check(fake::initializations == 1 && fake::shutdowns == 0 && fake::releases == 7,
           "Restart retains SDK but releases platforms");
     shutdownRuntime();
     shutdownRuntime();

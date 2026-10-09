@@ -1,7 +1,7 @@
-# EOS for L^
+# Epic Online Service (EOS) for L^
 
-A native L^ extension for Steam-authenticated lobby matchmaking and P2P multiplayer.
-The binding uses the EOS SDK's Connect, Lobby and P2P interfaces. It does not implement game-state replication or rollback.
+A native L^ extension for lobby matchmaking and P2P multiplayer, authenticated with Steam or an Epic Games account.
+The binding uses the EOS SDK's Auth, Connect, Lobby and P2P interfaces. It does not implement game-state replication or rollback.
 
 [日本語](README.ja.md)
 
@@ -60,7 +60,7 @@ With the full lhat CLI containing `--extension` support, run from this repositor
 
 ```powershell
 $env:PATH = "$PWD\EOSSDK\SDK\Bin;$env:PATH"
-..\lhat\build\msvc-release\lhat.exe --dump-host-api lhat-host.json --extension .\build\Release\eos_lhat.dll
+..\lhat\build\release\lhat.exe --dump-host-api lhat-host.json --extension .\build\Release\eos_lhat.dll
 ```
 
 This includes the CLI's standard library and EOS definitions without running a game.
@@ -81,6 +81,20 @@ Your Steam integration obtains a ticket using `ISteamUser::GetAuthTicketForWebAp
 **Ticket acquisition is outside this extension.** It neither starts Steam nor distributes Steamworks SDK code. Keep the ticket valid according to the Steamworks lifecycle. On `authExpired`, obtain a fresh ticket and call `loginSteam` again on the same Client; lobby membership is retained. A first login returning `EOS_InvalidUser` automatically calls `EOS_Connect_CreateUser`. Account linking and switching between accounts are not implemented; create a new Client to change accounts.
 
 `loginDevice(displayName)` is available for development without Steam. It is not a substitute for Steam identity in a shipped Steam game. Two clients on the same device can map to the same Device ID; use separate devices/accounts for real two-player tests.
+
+## Epic Games account authentication
+
+In the Developer Portal, create an Epic Account Services application with the **Basic Profile** permission, link it to the product's client, and add the **Epic Games** identity provider to the deployment. The extension requests only Basic Profile, signs in with EOS Auth, then logs in to Connect with the account's ID token. A Product User is created on first login, as with Steam.
+
+- `loginEpic(false)` signs in silently with the refresh token the SDK stored on this device; it fails when none is stored or the user must interact.
+- `loginEpic(true)` does the same, then falls back to the Account Portal login UI unless the failure was a network error, timeout or cancellation. A successful portal login stores the refresh token for the next run.
+- `loginEpicExchange(code)` consumes the one-time exchange code the Epic Games Launcher passes as `-AUTH_PASSWORD=<code>` (with `-AUTH_TYPE=exchangecode`). Parse the command line in the game; use the code promptly, once.
+- `loginEpicDeveloper(host, credentialName)` uses the SDK's Developer Authentication Tool, e.g. `loginEpicDeveloper("localhost:6547", "Player1")`. Development only.
+- `forgetEpic()` deletes the stored refresh token so the next interactive login shows the portal (for "switch account"). It requires a new client that has not logged in; the result is an `epicForgotten` event.
+
+While the Epic account remains signed in, every `loginEpic*` call only copies a fresh ID token and repeats the Connect login. On `authExpired`, call `loginEpic(false)` on the same client; the lobby is kept.
+
+The overlay is disabled (`EOS_PF_DISABLE_OVERLAY`). On Windows, the SDK documents that Account Portal login requires starting the game through the EOS Bootstrapper with the EOS redistributable service installed; Epic Games Store builds normally use the exchange code instead. **Real Epic logins, including the portal's behaviour without the overlay, have not been verified**; the tests use a fake SDK.
 
 ## LÔVE setup and example
 
@@ -119,10 +133,14 @@ All configuration fields are strings. `socketName` is 1–32 EOS socket-name cha
 
 | Client method | Result / purpose |
 | --- | --- |
-| `tick()` | `nil | Error`; call once per frame to drive EOS callbacks |
+| `tick()` | `nil \| Error`; call once per frame to drive EOS callbacks |
 | `poll()` | Event record, `nil` when empty, or Error |
 | `loginSteam(hexTicket)` | Request ID or Error; also refreshes credentials |
 | `loginDevice(displayName)` | Request ID or Error; development login |
+| `loginEpic(interactive)` | Request ID or Error; persistent Epic login, optionally falling back to the Account Portal |
+| `loginEpicExchange(code)` | Request ID or Error; Epic Games Launcher exchange code |
+| `loginEpicDeveloper(host, credentialName)` | Request ID or Error; Developer Authentication Tool |
+| `forgetEpic()` | Request ID or Error; deletes the stored Epic refresh token |
 | `createLobby(bucket, capacity)` | Request ID or Error; public lobby, capacity 2–64, host migration enabled |
 | `search(bucket, limit)` | Request ID or Error; bucket equality and at least one free slot, limit 1–100 |
 | `results()` | Array of lobby records or Error; available after search completion |
@@ -131,11 +149,11 @@ All configuration fields are strings. `socketName` is 1–32 EOS socket-name cha
 | `userId()` | Product User ID string; empty before login, or Error |
 | `lobby()` | Current lobby record or Error |
 | `members()` | Array of Product User ID strings (including self), or Error |
-| `send(peerId, data, channel, reliability)` | `nil | Error`; binary-safe string, maximum 1170 bytes, channel 0–255 |
+| `send(peerId, data, channel, reliability)` | `nil \| Error`; binary-safe string, maximum 1170 bytes, channel 0–255 |
 | `receive()` | `{peerId, data, channel}`, `nil` when empty, or Error |
-| `disconnect(peerId)` | `nil | Error`; a subsequent send may reconnect |
-| `relay(mode)` | `nil | Error`; `eos.Relay.never`, `.allow` (SDK default), `.always` |
-| `close()` | `nil | Error`; idempotent, cancels outstanding operations and releases this platform |
+| `disconnect(peerId)` | `nil \| Error`; a subsequent send may reconnect |
+| `relay(mode)` | `nil \| Error`; `eos.Relay.never`, `.allow` (SDK default), `.always` |
+| `close()` | `nil \| Error`; idempotent, cancels outstanding operations and releases this platform |
 
 Reliability values: `eos.Reliability.unreliable`, `.reliableUnordered`, `.reliableOrdered`.
 Lobby records: `{id:string, owner:string, bucket:string, capacity:number, available:number}`.
@@ -143,11 +161,11 @@ Arrays use zero-based L^ indexes. Search results are snapshots and reset at the 
 
 Operations return a request ID immediately. Their Event has the matching `request`, `ok`, and EOS result name in `code`; unsolicited notifications have request 0. Events also contain `lobbyId` and `peerId` strings (empty when inapplicable). `kind` is an `eos.EventKind`:
 
-- Completions: `login`, `search`, `created`, `joined`, `left`.
+- Completions: `login`, `search`, `created`, `joined`, `left`, `epicForgotten`.
 - Notifications: `memberJoined`, `memberLeft`, `ownerChanged`, `lobbyClosed`, `authExpired`, `loggedOut`, `peerClosed`.
 - Diagnostics: `overflow`, `internalError`. Overflow reports the number of dropped notifications in `code`. Resynchronize membership and pending operations if it occurs.
 
-Membership and peer-close notifications use their numeric SDK status/reason in `code`. Synchronous validation/SDK failures return `eos.Error` with a message. Only one login, one lobby mutation and one search may be outstanding at a time. Search and lobby operations are otherwise independent.
+Membership and peer-close notifications use their numeric SDK status/reason in `code`. Synchronous validation/SDK failures return `eos.Error` with a message. Only one login (including `forgetEpic`), one lobby mutation and one search may be outstanding at a time. Search and lobby operations are otherwise independent.
 
 Poll all events each frame. The notification queue is bounded to 256 records. `receive` discards packets for other sockets/former members, processing at most 64 queued packets per call. Limit receive calls per frame in games exposed to sustained traffic.
 
@@ -157,6 +175,6 @@ Only current lobby peers can be sent to or accepted; disconnecting/kicking membe
 
 Call `leave()` and keep ticking until completion for graceful departure, then `close()`. GC/disposal is a fallback, not an orderly lobby exit. Closing a Client cancels pending completions; no events are delivered afterward. The EOS SDK stays initialized across Client recreation and LÔVE restart. The ABI 2 shutdown hook calls `EOS_Shutdown` once, after all programs/registry callbacks are destroyed, before the extension is unloaded. A host that already owns EOS is deliberately rejected; borrowed-platform integration is not implemented.
 
-Tests cover real SDK loading, offline platform creation/recreation, full/VM registration, and a deterministic fake backend for login continuation, token refresh, two-player lobby search/join, binary P2P packets, membership filtering, queue overflow and cleanup. The restart test destroys and recreates the entire L^ Program and VM three times in one process while retaining the extension. It checks one SDK initialization/shutdown and the release of all three platforms. The LÔVE example is kept separately and is not part of this L^-only suite. **Real Steam login, EOS backend matchmaking and NAT/relay connectivity have not been verified**: they require a configured EOS deployment and two real accounts/devices. Mock tests do not validate those services.
+Tests cover real SDK loading, offline platform creation/recreation, full/VM registration, and a deterministic fake backend for login continuation, token refresh, Epic persistent/portal/exchange/developer login, two-player lobby search/join, binary P2P packets, membership filtering, queue overflow and cleanup. The restart test destroys and recreates the entire L^ Program and VM three times in one process while retaining the extension. It checks one SDK initialization/shutdown and the release of all three platforms. The LÔVE example is kept separately and is not part of this L^-only suite. **Real Steam login, EOS backend matchmaking and NAT/relay connectivity have not been verified**: they require a configured EOS deployment and two real accounts/devices. Mock tests do not validate those services.
 
 Achievements, friends, invites, voice, custom lobby attributes, automatic matchmaking queues, Steam ticket acquisition, account linking and game-state synchronization are outside this first implementation.

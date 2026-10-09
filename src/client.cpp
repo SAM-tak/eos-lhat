@@ -97,10 +97,11 @@ Client::Client(const Config &c) : config_(c), thread_(std::this_thread::get_id()
         platform_ = EOS_Platform_Create(&o);
         if (!platform_)
             throw Failure("EOS_Platform_Create failed");
+        auth_ = EOS_Platform_GetAuthInterface(platform_);
         connect_ = EOS_Platform_GetConnectInterface(platform_);
         lobbies_ = EOS_Platform_GetLobbyInterface(platform_);
         p2p_ = EOS_Platform_GetP2PInterface(platform_);
-        if (!connect_ || !lobbies_ || !p2p_)
+        if (!auth_ || !connect_ || !lobbies_ || !p2p_)
             throw Failure("EOS interface unavailable");
         EOS_Connect_AddNotifyAuthExpirationOptions auth{
             EOS_CONNECT_ADDNOTIFYAUTHEXPIRATION_API_LATEST};
@@ -196,6 +197,7 @@ void Client::close() {
     events_.clear();
     results_.clear();
     user_ = nullptr;
+    epic_ = nullptr;
     lobbyId_.clear();
     if (runtime_) {
         releaseRuntime();
@@ -298,6 +300,103 @@ uint64_t Client::loginDevice(const std::string &name) {
                                    nullptr);
                 else
                     c.finishLogin(i->ResultCode, nullptr);
+            });
+        });
+    return request;
+}
+uint64_t Client::beginEpic() {
+    if (loginRequest_)
+        throw Failure("Login already pending");
+    auto request = loginRequest_ = nextRequest_++;
+    // A signed-in Epic account only needs a fresh ID token, e.g. after authExpired.
+    if (epic_ && EOS_Auth_GetLoginStatus(auth_, epic_) == EOS_ELoginStatus::EOS_LS_LoggedIn)
+        connectEpic();
+    else
+        epic_ = nullptr;
+    return request;
+}
+uint64_t Client::loginEpic(bool interactive) {
+    check();
+    auto request = beginEpic();
+    if (!epic_)
+        authLogin(EOS_ELoginCredentialType::EOS_LCT_PersistentAuth, nullptr, nullptr, interactive);
+    return request;
+}
+uint64_t Client::loginEpicExchange(const std::string &code) {
+    check();
+    text(code, "exchange code", 1024);
+    auto request = beginEpic();
+    if (!epic_)
+        authLogin(EOS_ELoginCredentialType::EOS_LCT_ExchangeCode, nullptr, code.c_str(), false);
+    return request;
+}
+uint64_t Client::loginEpicDeveloper(const std::string &host, const std::string &name) {
+    check();
+    text(host, "developer auth host");
+    text(name, "developer credential name");
+    auto request = beginEpic();
+    if (!epic_)
+        authLogin(EOS_ELoginCredentialType::EOS_LCT_Developer, host.c_str(), name.c_str(), false);
+    return request;
+}
+void Client::authLogin(EOS_ELoginCredentialType type, const char *id, const char *token,
+                       bool fallback) {
+    EOS_Auth_Credentials credentials{};
+    credentials.ApiVersion = EOS_AUTH_CREDENTIALS_API_LATEST;
+    credentials.Id = id;
+    credentials.Token = token;
+    credentials.Type = type;
+    EOS_Auth_LoginOptions o{};
+    o.ApiVersion = EOS_AUTH_LOGIN_API_LATEST;
+    o.Credentials = &credentials;
+    // Basic Profile is the one permission every Epic Account Services client must enable.
+    o.ScopeFlags = EOS_EAuthScopeFlags::EOS_AS_BasicProfile;
+    // Automatic login must stay silent; only the portal may show a login UI.
+    if (type == EOS_ELoginCredentialType::EOS_LCT_PersistentAuth)
+        o.LoginFlags = EOS_LF_NO_USER_INTERFACE;
+    epicFallback_ = fallback;
+    EOS_Auth_Login(auth_, &o, this, [](const EOS_Auth_LoginCallbackInfo *i) {
+        callback(i->ClientData, [&](Client &c) {
+            auto fallback = c.epicFallback_;
+            c.epicFallback_ = false;
+            if (i->ResultCode == EOS_EResult::EOS_Success) {
+                c.epic_ = i->LocalUserId;
+                c.connectEpic();
+            } else if (fallback && i->ResultCode != EOS_EResult::EOS_NoConnection &&
+                       i->ResultCode != EOS_EResult::EOS_TimedOut &&
+                       i->ResultCode != EOS_EResult::EOS_Canceled)
+                c.authLogin(EOS_ELoginCredentialType::EOS_LCT_AccountPortal, nullptr, nullptr,
+                            false);
+            else
+                c.finishLogin(i->ResultCode, nullptr);
+        });
+    });
+}
+void Client::connectEpic() {
+    EOS_Auth_CopyIdTokenOptions o{EOS_AUTH_COPYIDTOKEN_API_LATEST, epic_};
+    EOS_Auth_IdToken *raw = nullptr;
+    auto r = EOS_Auth_CopyIdToken(auth_, &o, &raw);
+    if (r != EOS_EResult::EOS_Success) {
+        finishLogin(r, nullptr);
+        return;
+    }
+    std::unique_ptr<EOS_Auth_IdToken, decltype(&EOS_Auth_IdToken_Release)> token(
+        raw, EOS_Auth_IdToken_Release);
+    connectLogin(EOS_EExternalCredentialType::EOS_ECT_EPIC_ID_TOKEN, token->JsonWebToken);
+}
+uint64_t Client::forgetEpic() {
+    check();
+    if (user_ || epic_ || loginRequest_)
+        throw Failure("Forgetting the Epic login requires a new, idle client");
+    auto request = loginRequest_ = nextRequest_++;
+    EOS_Auth_DeletePersistentAuthOptions o{EOS_AUTH_DELETEPERSISTENTAUTH_API_LATEST, nullptr};
+    EOS_Auth_DeletePersistentAuth(
+        auth_, &o, this, [](const EOS_Auth_DeletePersistentAuthCallbackInfo *i) {
+            callback(i->ClientData, [&](Client &c) {
+                auto request = c.loginRequest_;
+                c.loginRequest_ = 0;
+                c.emit({EventKind::EpicForgotten, request, i->ResultCode == EOS_EResult::EOS_Success,
+                        EOS_EResult_ToString(i->ResultCode)});
             });
         });
     return request;

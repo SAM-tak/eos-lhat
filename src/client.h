@@ -1,5 +1,6 @@
 #pragma once
 #include <eos_sdk.h>
+#include <eos_auth.h>
 #include <eos_connect.h>
 #include <eos_lobby.h>
 #include <eos_p2p.h>
@@ -31,6 +32,7 @@ enum class EventKind {
     LobbyClosed,
     AuthExpired,
     LoggedOut,
+    EpicForgotten,
     PeerClosed,
     Overflow,
     InternalError
@@ -61,6 +63,11 @@ class Client {
     std::optional<Event> poll();
     uint64_t loginSteam(const std::string &ticket);
     uint64_t loginDevice(const std::string &name);
+    // Persistent Epic login; interactive falls back to the Account Portal.
+    uint64_t loginEpic(bool interactive);
+    uint64_t loginEpicExchange(const std::string &code);
+    uint64_t loginEpicDeveloper(const std::string &host, const std::string &name);
+    uint64_t forgetEpic();
     uint64_t createLobby(const std::string &bucket, uint32_t capacity);
     uint64_t search(const std::string &bucket, uint32_t limit);
     uint64_t join(const std::string &id);
@@ -79,15 +86,17 @@ class Client {
     Config config_;
     std::thread::id thread_;
     EOS_HPlatform platform_ = nullptr;
+    EOS_HAuth auth_ = nullptr;
     EOS_HConnect connect_ = nullptr;
     EOS_HLobby lobbies_ = nullptr;
     EOS_HP2P p2p_ = nullptr;
     EOS_ProductUserId user_ = nullptr;
+    EOS_EpicAccountId epic_ = nullptr;
     EOS_P2P_SocketId socket_{};
     EOS_HLobbySearch search_ = nullptr;
     EOS_NotificationId authNotify_ = 0, statusNotify_ = 0, memberNotify_ = 0, requestNotify_ = 0,
                        closedNotify_ = 0;
-    bool runtime_ = false, closing_ = false;
+    bool runtime_ = false, closing_ = false, epicFallback_ = false;
     uint64_t nextRequest_ = 1, loginRequest_ = 0, lobbyRequest_ = 0, searchRequest_ = 0,
              dropped_ = 0;
     std::string lobbyId_, loginName_;
@@ -98,6 +107,10 @@ class Client {
     void emit(Event event);
     void finishLogin(EOS_EResult code, EOS_ProductUserId user);
     void connectLogin(EOS_EExternalCredentialType type, const char *token);
+    uint64_t beginEpic();
+    void authLogin(EOS_ELoginCredentialType type, const char *id, const char *token,
+                   bool fallback);
+    void connectEpic();
     void installPeerNotifications();
     void removePeerNotifications();
     void closePeers();

@@ -1,6 +1,6 @@
-# EOS for L^
+# L^ 用 Epic Online Service (EOS)
 
-Steam認証・ロビー検索によるマッチング・P2P通信を提供するL^ネイティブ拡張。ゲーム状態の同期やロールバックはゲーム側で実装する。
+Steam認証またはEpic Gamesアカウント認証・ロビー検索によるマッチング・P2P通信を提供するL^ネイティブ拡張。ゲーム状態の同期やロールバックはゲーム側で実装する。
 
 [English](README.md)
 
@@ -48,7 +48,7 @@ SDKは`SAM-tak/eos-sdk-private`から`EOSSDK`へcheckoutする。**eos-lhatリ�
 
 ```powershell
 $env:PATH = "$PWD\EOSSDK\SDK\Bin;$env:PATH"
-..\lhat\build\msvc-release\lhat.exe --dump-host-api lhat-host.json --extension .\build\Release\eos_lhat.dll
+..\lhat\build\release\lhat.exe --dump-host-api lhat-host.json --extension .\build\Release\eos_lhat.dll
 ```
 
 このJSONにはCLIの標準ライブラリとEOSが含まれる。LÔVEのAPIも含める場合は、同じSDKの `PATH` 設定で、今回の対応を含むlovecを使う:
@@ -70,6 +70,20 @@ EOS Developer PortalでProduct・Sandbox・Deploymentを作成し、SteamのIden
 初回ログインで`EOS_InvalidUser`になった場合は`EOS_Connect_CreateUser`へ進む。既存アカウントとのリンク機能は未実装。別アカウントへ切り替える場合はClientを作り直す。
 
 開発用には`loginDevice(displayName)`も利用できる。同じ端末のDevice IDは同じユーザーに対応しうるため、実際の2人対戦には別端末・別アカウントを使う。
+
+## Epic Gamesアカウント認証の準備
+
+Developer PortalでEpic Account Servicesのアプリケーションを作成して**Basic Profile**権限を設定し、ProductのClientと紐付ける。DeploymentのIdentity Providerに**Epic Games**を追加する。拡張はBasic Profileだけを要求し、EOS Authでサインインした後、そのアカウントのIDトークンでConnectへログインする。初回はSteamと同様にProduct Userを作成する。
+
+- `loginEpic(false)`: SDKがこの端末に保存したリフレッシュトークンで無言ログイン。保存がない場合やユーザー操作が必要な場合は失敗する。
+- `loginEpic(true)`: 上と同じ処理を試し、ネットワークエラー・タイムアウト・キャンセル以外で失敗したらAccount Portalのログイン画面へ進む。成功すると次回用のリフレッシュトークンが保存される。
+- `loginEpicExchange(code)`: Epic Games Launcherが`-AUTH_PASSWORD=<code>`（`-AUTH_TYPE=exchangecode`付き）で渡す1回限りのexchange codeでログイン。コマンドライン解析はゲーム側。起動後すぐに1回だけ使う。
+- `loginEpicDeveloper(host, credentialName)`: SDK付属のDeveloper Authentication Toolを使う。例: `loginEpicDeveloper("localhost:6547", "Player1")`。開発専用。
+- `forgetEpic()`: 保存済みリフレッシュトークンを削除し、次の対話ログインでPortalを表示させる（アカウント切替用）。未ログインの新しいClientでのみ実行でき、結果は`epicForgotten`通知で届く。
+
+Epicアカウントのサインインが続いている間は、どの`loginEpic*`もIDトークンを取り直してConnectログインだけをやり直す。`authExpired`を受けたら同じClientで`loginEpic(false)`を呼ぶ。ロビーは維持する。
+
+オーバーレイは無効（`EOS_PF_DISABLE_OVERLAY`）。SDKの記述では、WindowsでAccount Portalを使うにはEOS Bootstrapper経由での起動とEOS再頒布サービスのインストールが必要。Epic Games Store版は通常exchange codeを使う。**実際のEpicログイン（オーバーレイなしでのPortalの挙動を含む）は未検証**。テストは模擬SDKで行っている。
 
 ## LÔVEで試す
 
@@ -108,10 +122,14 @@ eos.create({ productId, sandboxId, deploymentId, clientId, clientSecret,
 
 | Clientのメソッド | 結果・用途 |
 | --- | --- |
-| `tick()` | `nil | Error`。毎フレーム呼んで非同期処理を進める |
+| `tick()` | `nil \| Error`。毎フレーム呼んで非同期処理を進める |
 | `poll()` | 通知レコード、空ならnil、失敗ならError |
 | `loginSteam(hexTicket)` | リクエストIDまたはError。認証更新にも使う |
 | `loginDevice(displayName)` | リクエストIDまたはError。開発用認証 |
+| `loginEpic(interactive)` | リクエストIDまたはError。保存済みトークンでのEpicログイン、必要ならAccount Portalへ |
+| `loginEpicExchange(code)` | リクエストIDまたはError。Epic Games Launcherのexchange code |
+| `loginEpicDeveloper(host, credentialName)` | リクエストIDまたはError。Developer Authentication Tool |
+| `forgetEpic()` | リクエストIDまたはError。保存済みEpicリフレッシュトークンを削除 |
 | `createLobby(bucket, capacity)` | リクエストIDまたはError。公開ロビー、2～64人、ホスト移行有効 |
 | `search(bucket, limit)` | リクエストIDまたはError。bucket一致、空き1以上、最大1～100件 |
 | `results()` | 検索完了後のロビー配列、またはError |
@@ -119,11 +137,11 @@ eos.create({ productId, sandboxId, deploymentId, clientId, clientSecret,
 | `userId()` | Product User ID文字列、未ログインは空、失敗ならError |
 | `lobby()` | 現在のロビーレコード、またはError |
 | `members()` | 自分を含むProduct User IDの配列、またはError |
-| `send(peerId, data, channel, reliability)` | `nil | Error`。dataはバイナリ文字列、最大1170バイト、channelは0～255 |
+| `send(peerId, data, channel, reliability)` | `nil \| Error`。dataはバイナリ文字列、最大1170バイト、channelは0～255 |
 | `receive()` | `{peerId, data, channel}`、空ならnil、失敗ならError |
-| `disconnect(peerId)` | `nil | Error`。その後sendすれば再接続しうる |
-| `relay(mode)` | `nil | Error`。`eos.Relay.never` / `allow`（SDK既定）/ `always` |
-| `close()` | `nil | Error`。何度呼んでもよく、未完了操作とPlatformを破棄する |
+| `disconnect(peerId)` | `nil \| Error`。その後sendすれば再接続しうる |
+| `relay(mode)` | `nil \| Error`。`eos.Relay.never` / `allow`（SDK既定）/ `always` |
+| `close()` | `nil \| Error`。何度呼んでもよく、未完了操作とPlatformを破棄する |
 
 送信の信頼性は`eos.Reliability.unreliable` / `reliableUnordered` / `reliableOrdered`。
 ロビーレコードは`{id:string, owner:string, bucket:string, capacity:number, available:number}`。
@@ -131,11 +149,11 @@ eos.create({ productId, sandboxId, deploymentId, clientId, clientSecret,
 
 非同期操作は即座にリクエストIDを返す。対応する通知の`request`がそのIDになり、`ok`と`code`で成否を確認する。自発通知のrequestは0。通知には常に`lobbyId`と`peerId`も含まれ、該当しない場合は空文字列になる。`kind`は`eos.EventKind`のenum。
 
-- 完了: `login`、`search`、`created`、`joined`、`left`。
+- 完了: `login`、`search`、`created`、`joined`、`left`、`epicForgotten`。
 - 変化: `memberJoined`、`memberLeft`、`ownerChanged`、`lobbyClosed`、`authExpired`、`loggedOut`、`peerClosed`。
 - 診断: `overflow`、`internalError`。overflowのcodeは捨てた通知数。発生時は参加者一覧と未完了操作を再確認する。
 
-完了通知のcodeはEOSの結果名。参加者変化とP2P切断ではSDKのstatus/reason数値文字列。同期的な失敗はmessageを持つ`eos.Error`。同時実行できる認証・ロビー変更・検索はそれぞれ1件まで。
+完了通知のcodeはEOSの結果名。参加者変化とP2P切断ではSDKのstatus/reason数値文字列。同期的な失敗はmessageを持つ`eos.Error`。同時実行できる認証（`forgetEpic`を含む）・ロビー変更・検索はそれぞれ1件まで。
 
 毎フレームpollで通知を取り出す。キューは256件まで。receiveは別socketや退出済みユーザーのパケットを捨て、1回に最大64件を処理する。ゲーム側でも1フレームの受信回数に上限を設ける。
 
@@ -147,7 +165,7 @@ eos.create({ productId, sandboxId, deploymentId, clientId, clientSecret,
 
 Client再作成やLÔVE restartではEOS SDKの初期化状態を保持する。ABI 2の終了フックで、全Program・レジストリを破棄した後、DLLを解放する直前に`EOS_Shutdown`を1回だけ呼ぶ。別のホストが既にEOSを初期化している場合は拒否する。既存Platformを借りる連携は未実装。
 
-テストは実SDKのロード・オフラインでのPlatform再作成、通常版/VM版のバインド、模擬SDKでの2クライアント通信・認証更新・参加者制限・通知上限・後始末、サンプルのコンパイルを対象とする。**実Steam認証・EOSサービス上のマッチング・NAT越え/リレーでの2台通信は未検証**。有効なEOS設定と2つの実アカウント/端末が必要で、模擬テストでは確認できない。
+テストは実SDKのロード・オフラインでのPlatform再作成、通常版/VM版のバインド、模擬SDKでの2クライアント通信・認証更新・Epicログイン（保存トークン・Portal・exchange code・開発ツール）・参加者制限・通知上限・後始末、サンプルのコンパイルを対象とする。**実Steam認証・EOSサービス上のマッチング・NAT越え/リレーでの2台通信は未検証**。有効なEOS設定と2つの実アカウント/端末が必要で、模擬テストでは確認できない。
 
 実績・フレンド・招待・ボイス・カスタムロビー属性・自動マッチングキュー・Steamチケット取得・アカウントリンク・ゲーム状態同期は初版の範囲外。
 
