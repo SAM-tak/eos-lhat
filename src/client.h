@@ -9,6 +9,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -51,6 +52,11 @@ struct Packet {
     std::string peer, data;
     uint8_t channel = 0;
 };
+struct Received {
+    std::string peer;
+    uint8_t channel = 0;
+    uint32_t size = 0;
+};
 
 class Client {
   public:
@@ -76,9 +82,11 @@ class Client {
     std::vector<std::string> members() const;
     LobbyInfo lobby() const;
     std::string userId() const;
-    void send(const std::string &peer, const std::string &bytes, uint8_t channel,
+    void send(const std::string &peer, std::string_view bytes, uint8_t channel,
               EOS_EPacketReliability reliability);
     std::optional<Packet> receive();
+    // Writes the packet to `out`, which must hold EOS_P2P_MAX_PACKET_SIZE bytes.
+    std::optional<Received> receiveInto(char *out, uint32_t capacity);
     void disconnect(const std::string &peer);
     void relay(EOS_ERelayControl mode);
 

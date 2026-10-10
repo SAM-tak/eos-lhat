@@ -1,6 +1,8 @@
 // Minimal L^ host for signature generation and extension lifecycle tests.
 #include <lhat.h>
 #include <lhat/extension.h>
+#include "stdlib/binary.h"
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -102,11 +104,29 @@ int main(int argc, char **argv) {
         require(bool(pool), "Could not allocate extension pool");
         const auto module = lhat_extensions_load(pool.get(), argv[2]);
         require(module != nullptr, lhat_extensions_error(pool.get()));
+#if !LHAT_WITH_FRONTEND
+        // A VM-only host registers std.binary from a table its full twin wrote;
+        // the extension embeds exactly that table.
+        auto *library = openLibrary(nullptr, argv[2]);
+        require(library != nullptr, loaderError);
+        auto entry = reinterpret_cast<const LhatExtension *(*)(void)>(
+            symbol(nullptr, library, "lhat_extension_v2"));
+        require(entry != nullptr, "Missing lhat_extension_v2");
+        const LhatExtension *descriptor = entry();
+#endif
         for (int iteration = 0; iteration < repetitions; ++iteration) {
             // A restart discards the entire VM and Program, retaining the loaded DLL.
             std::unique_ptr<LhatProgram, decltype(&lhat_program_free)> program(
                 lhat_program_new(true, lhat_load_file, nullptr), lhat_program_free);
             require(bool(program), "Could not allocate Program");
+#if !LHAT_WITH_FRONTEND
+            require(lhat_program_read_signatures(program.get(), descriptor->signatures,
+                                                 descriptor->signatures_size),
+                    "Could not read the host signature table");
+#endif
+            // Hosts register std.binary before extensions; omit it to test string-only hosts.
+            require(std::getenv("EOS_LHAT_NO_BINARY") || lhatstdlib_binary_register(program.get()),
+                    "Could not register std.binary");
             if (!lhat_extensions_register(pool.get(), program.get(), &module, 1))
                 throw std::runtime_error(lhat_extensions_error(pool.get()));
             uint8_t *bytes = nullptr;

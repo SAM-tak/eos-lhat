@@ -149,11 +149,14 @@ All configuration fields are strings. `socketName` is 1–32 EOS socket-name cha
 | `userId()` | Product User ID string; empty before login, or Error |
 | `lobby()` | Current lobby record or Error |
 | `members()` | Array of Product User ID strings (including self), or Error |
-| `send(peerId, data, channel, reliability)` | `nil \| Error`; binary-safe string, maximum 1170 bytes, channel 0–255 |
+| `send(peerId, data, channel, reliability)` | `nil \| Error`; `data` is a binary-safe `string^` or a `std.binary.Bytes` (two overloads), maximum 1170 bytes, channel 0–255 |
 | `receive()` | `{peerId, data, channel}`, `nil` when empty, or Error |
+| `receiveInto(bytes)` | `(bytes \| nil, peerId, channel) \| Error`; overwrites a reused `std.binary.Bytes` without allocating a record; `nil, "", 0` when empty |
 | `disconnect(peerId)` | `nil \| Error`; a subsequent send may reconnect |
 | `relay(mode)` | `nil \| Error`; `eos.Relay.never`, `.allow` (SDK default), `.always` |
 | `close()` | `nil \| Error`; idempotent, cancels outstanding operations and releases this platform |
+
+The `Bytes` overloads of `send` and `receiveInto` exist only when the host registers `std.binary` before loading extensions; otherwise the client has the `string^` methods alone. Using a disposed `Bytes` panics, as in `std.binary`.
 
 Reliability values: `eos.Reliability.unreliable`, `.reliableUnordered`, `.reliableOrdered`.
 Lobby records: `{id:string, owner:string, bucket:string, capacity:number, available:number}`.

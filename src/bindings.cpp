@@ -7,12 +7,19 @@
 #include <limits>
 #include <new>
 #include "eos_signatures.h"
+#include "stdlib/binary.h"
 
 namespace {
 using namespace eos_lhat;
 const LhatExtensionAPI *api;
 const LhatHostDataTag *clientTag;
 const LhatErrorKind *errorKind;
+// std.binary's process-wide interface, once a program registered the module.
+const LhatBinaryInterface *binary;
+// A misuse the L^ program must fix, reported as a panic rather than eos.Error.
+struct Panic : std::runtime_error {
+    using std::runtime_error::runtime_error;
+};
 const char *const eventNames[] = {"login",         "search",       "created",    "joined",
                                   "left",          "memberJoined", "memberLeft", "ownerChanged",
                                   "lobbyClosed",   "authExpired",  "loggedOut",  "epicForgotten",
@@ -102,12 +109,15 @@ LhatValue eventValue(LhatMachine *m, const Event &e) {
     return t;
 }
 using Call = LhatValue (*)(LhatMachine *, const LhatValue *);
-template <Call call>
-void guard(LhatMachine *m, void *, const LhatValue *a, size_t, LhatValue *out,
-           int *count) noexcept {
+// Returns how many answers it wrote to `out`.
+using Calls = int (*)(LhatMachine *, const LhatValue *, LhatValue *);
+template <Calls call>
+void guardMany(LhatMachine *m, void *, const LhatValue *a, size_t, LhatValue *out,
+               int *count) noexcept {
     try {
-        out[0] = call(m, a);
-        *count = 1;
+        *count = call(m, a, out);
+    } catch (const Panic &e) {
+        api->lhat_machine_panic_text(m, e.what());
     } catch (const std::exception &e) {
         if (api->lhat_machine_make_error(m, errorKind, e.what(), lhat_nil(), out))
             *count = 1;
@@ -134,6 +144,11 @@ LhatValue create(LhatMachine *m, const LhatValue *a) {
     instance.release();
     return v;
 }
+template <Call call> int one(LhatMachine *m, const LhatValue *a, LhatValue *out) {
+    out[0] = call(m, a);
+    return 1;
+}
+template <Call call> constexpr LhatHostFn guard = guardMany<one<call>>;
 LhatValue tick(LhatMachine *, const LhatValue *a) {
     client(a[0]).tick();
     return lhat_nil();
@@ -196,8 +211,22 @@ LhatValue members(LhatMachine *m, const LhatValue *a) {
         put(m, t, lhat_integer(i), str(m, list[i]));
     return t;
 }
+LhatBinaryBytes &bytes(LhatValue v) {
+    auto *b = binary ? binary->bytes(v) : nullptr;
+    if (!b)
+        throw Panic("eos: the bytes were disposed");
+    return *b;
+}
 LhatValue send(LhatMachine *, const LhatValue *a) {
     client(a[0]).send(string(a[1]), string(a[2]), uint8_t(integer(a[3], 255)),
+                      EOS_EPacketReliability(choice(a[4], reliabilityNames, 3)));
+    return lhat_nil();
+}
+LhatValue sendBytes(LhatMachine *, const LhatValue *a) {
+    auto &b = bytes(a[2]);
+    client(a[0]).send(string(a[1]),
+                      std::string_view(reinterpret_cast<const char *>(b.data), b.length),
+                      uint8_t(integer(a[3], 255)),
                       EOS_EPacketReliability(choice(a[4], reliabilityNames, 3)));
     return lhat_nil();
 }
@@ -210,6 +239,24 @@ LhatValue receive(LhatMachine *m, const LhatValue *a) {
     field(m, t, "data", str(m, p->data));
     field(m, t, "channel", lhat_integer(p->channel));
     return t;
+}
+int receiveInto(LhatMachine *m, const LhatValue *a, LhatValue *out) {
+    auto &c = client(a[0]);
+    auto &b = bytes(a[1]);
+    if (!binary->resize(&b, EOS_P2P_MAX_PACKET_SIZE))
+        throw std::bad_alloc();
+    std::optional<Received> r;
+    try {
+        r = c.receiveInto(reinterpret_cast<char *>(b.data), EOS_P2P_MAX_PACKET_SIZE);
+    } catch (...) {
+        b.length = 0;
+        throw;
+    }
+    b.length = r ? r->size : 0;
+    out[0] = r ? a[1] : lhat_nil();
+    out[1] = str(m, r ? r->peer : std::string());
+    out[2] = lhat_integer(r ? r->channel : 0);
+    return 3;
 }
 LhatValue disconnect(LhatMachine *, const LhatValue *a) {
     client(a[0]).disconnect(string(a[1]));
@@ -270,6 +317,22 @@ const char *install(const LhatExtensionAPI *host, LhatProgram *program, uint32_t
     MEMBER(members, "f^self^ -> t^{string^[]}|eos.Error;");
     MEMBER(send, "p^self^,string^,string^,number^,eos.Reliability -> nil^|eos.Error;");
     MEMBER(receive, "p^self^ -> t^{peerId:string^,data:string^,channel:number^}|nil^|eos.Error;");
+    // 11 の 2.1: Bytes overloads exist only when the host registered std.binary first.
+    auto *found = static_cast<const LhatBinaryInterface *>(
+        api->lhat_lookup_host_context(program, "std.binary", nullptr, "bytes"));
+    if (found && found->version >= LHAT_BINARY_INTERFACE_VERSION) {
+        binary = found;
+        if (!api->lhat_register_member(
+                program, "eos", "Client", "send",
+                "p^self^,string^,std.binary.Bytes,number^,eos.Reliability -> nil^|eos.Error;",
+                guard<sendBytes>, nullptr))
+            return "Could not register Client.send(Bytes)";
+        if (!api->lhat_register_member(
+                program, "eos", "Client", "receiveInto",
+                "p^self^,std.binary.Bytes -> (std.binary.Bytes|nil^,string^,number^)|eos.Error;",
+                guardMany<receiveInto>, nullptr))
+            return "Could not register Client.receiveInto";
+    }
     MEMBER(disconnect, "p^self^,string^ -> nil^|eos.Error;");
     MEMBER(relay, "p^self^,eos.Relay -> nil^|eos.Error;");
 #undef MEMBER

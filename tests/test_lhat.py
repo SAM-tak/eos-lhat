@@ -59,7 +59,7 @@ def main():
             lifetime = work / 'lifetime.log'
             env['EOS_LHAT_TEST_LIFETIME'] = str(lifetime)
 
-            def run(exe, *args):
+            def run(exe, *args, env=env):
                 result = subprocess.run([str(exe), *map(str, args)], cwd=work, env=env,
                                         capture_output=True, text=True, encoding='utf-8',
                                         errors='replace', timeout=60)
@@ -73,6 +73,13 @@ def main():
                 run(host, 'run', binary, text, repetitions)
                 run(host, 'compile', binary, text, compiled)
                 run(vm, 'run', binary, compiled, repetitions)
+            # A host without std.binary gets the string^ arms only.
+            plain = dict(env, EOS_LHAT_NO_BINARY='1')
+            plain.pop('EOS_LHAT_TEST_LIFETIME', None)
+            compiled = work / 'plain.bin'
+            run(host, 'run', binary, ROOT / 'tests' / 'smoke.lh', env=plain)
+            run(host, 'compile', binary, ROOT / 'tests' / 'smoke.lh', compiled, env=plain)
+            run(vm, 'run', binary, compiled, env=plain)
             if library.endswith('_mock'):
                 # One SDK lifetime per process, zero live platforms at shutdown;
                 # all three restarted Programs must have released their clients.

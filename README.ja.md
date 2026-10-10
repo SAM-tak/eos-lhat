@@ -137,11 +137,14 @@ eos.create({ productId, sandboxId, deploymentId, clientId, clientSecret,
 | `userId()` | Product User ID文字列、未ログインは空、失敗ならError |
 | `lobby()` | 現在のロビーレコード、またはError |
 | `members()` | 自分を含むProduct User IDの配列、またはError |
-| `send(peerId, data, channel, reliability)` | `nil \| Error`。dataはバイナリ文字列、最大1170バイト、channelは0～255 |
+| `send(peerId, data, channel, reliability)` | `nil \| Error`。dataはバイナリ文字列`string^`または`std.binary.Bytes`（2本のオーバーロード）、最大1170バイト、channelは0～255 |
 | `receive()` | `{peerId, data, channel}`、空ならnil、失敗ならError |
+| `receiveInto(bytes)` | `(bytes \| nil, peerId, channel) \| Error`。使い回す`std.binary.Bytes`へ上書きし、レコードを作らない。空なら`nil, "", 0` |
 | `disconnect(peerId)` | `nil \| Error`。その後sendすれば再接続しうる |
 | `relay(mode)` | `nil \| Error`。`eos.Relay.never` / `allow`（SDK既定）/ `always` |
 | `close()` | `nil \| Error`。何度呼んでもよく、未完了操作とPlatformを破棄する |
+
+`send`と`receiveInto`の`Bytes`版は、ホストが拡張より先に`std.binary`を登録した場合だけ現れる。無ければ`string^`版だけになる。dispose済みの`Bytes`を渡すと`std.binary`と同様にpanicする。
 
 送信の信頼性は`eos.Reliability.unreliable` / `reliableUnordered` / `reliableOrdered`。
 ロビーレコードは`{id:string, owner:string, bucket:string, capacity:number, available:number}`。

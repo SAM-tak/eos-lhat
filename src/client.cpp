@@ -623,7 +623,7 @@ void Client::closePeers() {
     EOS_P2P_CloseConnectionsOptions o{EOS_P2P_CLOSECONNECTIONS_API_LATEST, user_, &socket_};
     EOS_P2P_CloseConnections(p2p_, &o);
 }
-void Client::send(const std::string &peer, const std::string &bytes, uint8_t channel,
+void Client::send(const std::string &peer, std::string_view bytes, uint8_t channel,
                   EOS_EPacketReliability reliability) {
     check(true);
     text(peer, "peer id", EOS_PRODUCTUSERID_MAX_LENGTH);
@@ -648,24 +648,32 @@ void Client::send(const std::string &peer, const std::string &bytes, uint8_t cha
     require(EOS_P2P_SendPacket(p2p_, &o), "Send packet");
 }
 std::optional<Packet> Client::receive() {
+    std::array<char, EOS_P2P_MAX_PACKET_SIZE> data{};
+    auto r = receiveInto(data.data(), uint32_t(data.size()));
+    if (!r)
+        return {};
+    return Packet{std::move(r->peer), std::string(data.data(), r->size), r->channel};
+}
+std::optional<Received> Client::receiveInto(char *out, uint32_t capacity) {
     check(true);
+    if (capacity < EOS_P2P_MAX_PACKET_SIZE)
+        throw Failure("Receive buffer is smaller than EOS_P2P_MAX_PACKET_SIZE");
     // Bound work when unrelated sockets or former members flood the SDK queue.
     for (int n = 0; n < 64; ++n) {
-        std::array<char, EOS_P2P_MAX_PACKET_SIZE> data{};
         EOS_P2P_ReceivePacketOptions o{EOS_P2P_RECEIVEPACKET_API_LATEST, user_,
-                                       uint32_t(data.size()), nullptr};
+                                       EOS_P2P_MAX_PACKET_SIZE, nullptr};
         EOS_ProductUserId peer = nullptr;
         EOS_P2P_SocketId socket{};
         socket.ApiVersion = EOS_P2P_SOCKETID_API_LATEST;
         uint8_t channel = 0;
         uint32_t size = 0;
-        auto r = EOS_P2P_ReceivePacket(p2p_, &o, &peer, &socket, &channel, data.data(), &size);
+        auto r = EOS_P2P_ReceivePacket(p2p_, &o, &peer, &socket, &channel, out, &size);
         if (r == EOS_EResult::EOS_NotFound)
             return {};
         require(r, "Receive packet");
         if (std::strcmp(socket.SocketName, socket_.SocketName) || !isMember(peer))
             continue;
-        return Packet{userText(peer), std::string(data.data(), size), channel};
+        return Received{userText(peer), channel, size};
     }
     return {};
 }
