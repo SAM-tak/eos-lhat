@@ -33,7 +33,7 @@ ctest --test-dir build -C Release --output-on-failure
 python tests/test_lhat.py --lhat /path/to/lhat --sdk /path/to/SDK
 ```
 
-Linux and macOS use the CMake/Python commands above. Set `BUILD_TESTING=OFF` for a production-only build. `cmake --install build --config Release --prefix dist` installs only the real extension. On Windows, the release artifact is **`eos_lhat.dll` only**; `.lib`, `.exp`, tooling executables and `eos_lhat_mock.dll` are not distributed. The mock replaces EOS for deterministic tests and cannot connect to real EOS services. Users supply the EOS runtime separately. For Linux/macOS deployment, put `libEOSSDK-Linux-Shipping.so` / `libEOSSDK-Mac-Shipping.dylib` next to the installed extension; its runtime search path is `$ORIGIN` / `@loader_path`. Build/test tools also set `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` when using the SDK directory directly.
+Linux and macOS use the CMake/Python commands above. Set `BUILD_TESTING=OFF` for a production-only build. `cmake --install build --config Release --prefix dist` installs only the real extension. On Windows, the release artifact is **`eos_lhat.dll` only**; `.lib`, `.exp`, tooling executables and `eos_lhat_mock.dll` are not distributed. The mock replaces EOS for deterministic tests and cannot connect to real EOS services. Users supply the EOS runtime separately. For Linux/macOS deployment, put `libEOSSDK-Linux-Shipping.so` / `libEOSSDK-Mac-Shipping.dylib` next to the installed extension; its runtime search path is `$ORIGIN` / `@loader_path`. macOS builds are universal by default; pass `-DEOS_LHAT_MACOS_UNIVERSAL=OFF` for the host CPU only. Build/test tools also set `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` when using the SDK directory directly.
 
 ## GitHub Actions
 
@@ -43,12 +43,12 @@ Linux and macOS use the CMake/Python commands above. Set `BUILD_TESTING=OFF` for
 | --- | --- | --- | --- |
 | Windows x64 | `windows-2022` | `eos-lhat-windows-x64` | `eos_lhat.dll` |
 | Linux x64 | `ubuntu-22.04` | `eos-lhat-linux-x64` | `eos_lhat.so` |
-| macOS Apple Silicon | `macos-15` | `eos-lhat-macos-arm64` | `eos_lhat.dylib` |
-| macOS Intel | `macos-15-intel` | `eos-lhat-macos-x64` | `eos_lhat.dylib` |
+| macOS Apple Silicon | `macos-15` | `eos-lhat-macos-arm64` | `eos_lhat.dylib` (universal) |
+| macOS Intel | `macos-15-intel` | `eos-lhat-macos-x64` | `eos_lhat.dylib` (universal) |
 
 Pushes to `main` and manual runs execute native tests plus full/VM-only L^ integration tests, including Program restarts, on every platform. The installed library is then relocated and tested again with the EOS runtime beside it. Each artifact contains only the extension library.
 
-Pushing a `v*` tag publishes the libraries only after all four builds and tests pass. Release assets are `eos_lhat.dll`, `eos_lhat.so`, `eos_lhat-macos-arm64.dylib` and `eos_lhat-macos-x64.dylib`. Rename the selected macOS library to `eos_lhat.dylib` for the example manifest, or name the downloaded file explicitly in your manifest. Re-running the tagged workflow replaces those assets. Main-branch and manual runs do not publish Releases. GitHub's automatic source archives are separate from these binary assets.
+Pushing a `v*` tag publishes the libraries only after all four builds and tests pass. Release assets are `eos_lhat.dll`, `eos_lhat.so` and `eos_lhat.dylib`, so `native/eos_lhat` in `extensions.txt` works unchanged on every platform. The macOS library is a universal binary (arm64 and x86_64), like the EOS SDK's dylib; both macOS jobs load and test it natively. Re-running the tagged workflow replaces those assets. Main-branch and manual runs do not publish Releases. GitHub's automatic source archives are separate from these binary assets.
 
 Dependencies are pinned by the 40-character commit IDs in `lhat.rev` and `eos-sdk.rev`. Update these files when upgrading L^ or the SDK, using commits already pushed to the corresponding repositories. The generated extension must match the consuming host's L^ version and ABI configuration.
 

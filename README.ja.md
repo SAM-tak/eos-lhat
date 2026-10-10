@@ -21,7 +21,7 @@ SDK本体・Steamworks SDK・認証情報・チケット・ビルド成果物は
 
 DLLと、lhat本体だけをリンクする小さなツール`eos_lhat_host`をビルドする。このツールからEOSの署名表を出力して埋め込み、DLLを再ビルドする。`build/Release/eos_lhat.dll`をフル版・VM専用版の両方で使える。バインドやL^の更新後には作り直す。
 
-配置が異なる場合は`-Lhat`、`-Sdk`、`-Build`を指定する。`-Test`はネイティブテストに加えてL^の統合テストも実行し、`LHAT_WITH_FRONTEND=OFF`のVM専用テストホストも自動ビルドする。Linux/macOSでは英語版READMEのCMake/Pythonコマンドを使う。`BUILD_TESTING=OFF`でテスト用DLLを除外できる。`cmake --install build --config Release --prefix dist`のインストール対象は本物の拡張DLLだけ。Windowsの配布物は **`eos_lhat.dll`のみ**。`.lib`、`.exp`、ツール、`eos_lhat_mock.dll`は配布しない。mockはEOSサービスへ接続せずに動作を再現する自動テスト用。利用者はEOSランタイムを別途用意する。Linux/macOSではインストールした拡張の隣に`libEOSSDK-Linux-Shipping.so`／`libEOSSDK-Mac-Shipping.dylib`を配置する。探索パスは`$ORIGIN`／`@loader_path`。ビルド・テストではSDKの場所に合わせて`LD_LIBRARY_PATH`／`DYLD_LIBRARY_PATH`も設定する。
+配置が異なる場合は`-Lhat`、`-Sdk`、`-Build`を指定する。`-Test`はネイティブテストに加えてL^の統合テストも実行し、`LHAT_WITH_FRONTEND=OFF`のVM専用テストホストも自動ビルドする。Linux/macOSでは英語版READMEのCMake/Pythonコマンドを使う。`BUILD_TESTING=OFF`でテスト用DLLを除外できる。`cmake --install build --config Release --prefix dist`のインストール対象は本物の拡張DLLだけ。Windowsの配布物は **`eos_lhat.dll`のみ**。`.lib`、`.exp`、ツール、`eos_lhat_mock.dll`は配布しない。mockはEOSサービスへ接続せずに動作を再現する自動テスト用。利用者はEOSランタイムを別途用意する。Linux/macOSではインストールした拡張の隣に`libEOSSDK-Linux-Shipping.so`／`libEOSSDK-Mac-Shipping.dylib`を配置する。探索パスは`$ORIGIN`／`@loader_path`。macOSでは既定でuniversal binaryをビルドする。ホストのCPU向けだけにするなら`-DEOS_LHAT_MACOS_UNIVERSAL=OFF`。ビルド・テストではSDKの場所に合わせて`LD_LIBRARY_PATH`／`DYLD_LIBRARY_PATH`も設定する。
 
 ## GitHub Actions
 
@@ -31,12 +31,12 @@ DLLと、lhat本体だけをリンクする小さなツール`eos_lhat_host`を�
 | --- | --- | --- | --- |
 | Windows x64 | `windows-2022` | `eos-lhat-windows-x64` | `eos_lhat.dll` |
 | Linux x64 | `ubuntu-22.04` | `eos-lhat-linux-x64` | `eos_lhat.so` |
-| macOS Apple Silicon | `macos-15` | `eos-lhat-macos-arm64` | `eos_lhat.dylib` |
-| macOS Intel | `macos-15-intel` | `eos-lhat-macos-x64` | `eos_lhat.dylib` |
+| macOS Apple Silicon | `macos-15` | `eos-lhat-macos-arm64` | `eos_lhat.dylib`（universal） |
+| macOS Intel | `macos-15-intel` | `eos-lhat-macos-x64` | `eos_lhat.dylib`（universal） |
 
 mainへのpushと手動実行で、各OSのネイティブテスト・フル版／VM専用版の統合テスト・Programのrestartテストまで実行する。インストール後のライブラリも別の場所へ移し、SDKを隣に置いて再検証する。各Artifactの中身は拡張ライブラリ1個だけ。
 
-`v*`タグをpushすると、4構成すべての成功後にGitHub Releaseを作成する。添付ファイルは`eos_lhat.dll`・`eos_lhat.so`・`eos_lhat-macos-arm64.dylib`・`eos_lhat-macos-x64.dylib`。macOS版は対象CPUのファイルを選び、サンプルのmanifestを使うなら`eos_lhat.dylib`にリネームするか、manifestへ実際のファイル名を指定する。タグのworkflowを再実行すると同じタグの添付ファイルを差し替える。mainや手動実行ではReleaseを公開しない。GitHubが自動生成するソースアーカイブはバイナリの添付ファイルとは別。
+`v*`タグをpushすると、4構成すべての成功後にGitHub Releaseを作成する。添付ファイルは`eos_lhat.dll`・`eos_lhat.so`・`eos_lhat.dylib`。`extensions.txt`の`native/eos_lhat`がどのOSでもそのまま使える。macOS版はEOS SDKのdylibと同じくarm64とx86_64を含むuniversal binaryで、両方のmacOSジョブがそれぞれのCPUで読み込んでテストする。タグのworkflowを再実行すると同じタグの添付ファイルを差し替える。mainや手動実行ではReleaseを公開しない。GitHubが自動生成するソースアーカイブはバイナリの添付ファイルとは別。
 
 依存先は`lhat.rev`と`eos-sdk.rev`の40桁コミットIDで固定している。更新時は各リポジトリへpush済みのコミットを指定する。生成したDLLのL^の版・ABI設定は利用先のホストと一致させる。
 

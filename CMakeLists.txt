@@ -40,6 +40,11 @@ else()
     if(APPLE)
         # Link with the final path so installation need not edit the signed Mach-O.
         set_target_properties(eos_lhat PROPERTIES INSTALL_RPATH "@loader_path" BUILD_WITH_INSTALL_RPATH TRUE)
+        # The EOS SDK dylib is universal; ship one extension for both Mac CPUs.
+        option(EOS_LHAT_MACOS_UNIVERSAL "Build eos_lhat for arm64 and x86_64" ON)
+        if(EOS_LHAT_MACOS_UNIVERSAL)
+            set_target_properties(eos_lhat PROPERTIES OSX_ARCHITECTURES "arm64;x86_64")
+        endif()
     else()
         set_target_properties(eos_lhat PROPERTIES INSTALL_RPATH "$ORIGIN")
     endif()

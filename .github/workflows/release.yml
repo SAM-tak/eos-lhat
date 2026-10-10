@@ -111,6 +111,10 @@ jobs:
           if ($files.Count -ne 1 -or $files[0].Name -cne '${{ matrix.library }}') {
             throw 'The release package must contain only ${{ matrix.library }}'
           }
+          if ($IsMacOS) {
+            lipo build/package/native/${{ matrix.library }} -verify_arch arm64 x86_64
+            if ($LASTEXITCODE -ne 0) { throw 'The macOS library must be universal' }
+          }
 
       - name: Test installed library and relative SDK lookup
         run: |
@@ -148,8 +152,8 @@ jobs:
         run: |
           cp release/eos-lhat-windows-x64/eos_lhat.dll release/eos_lhat.dll
           cp release/eos-lhat-linux-x64/eos_lhat.so release/eos_lhat.so
-          cp release/eos-lhat-macos-arm64/eos_lhat.dylib release/eos_lhat-macos-arm64.dylib
-          cp release/eos-lhat-macos-x64/eos_lhat.dylib release/eos_lhat-macos-x64.dylib
+          # Both macOS jobs test the same universal build; publish one copy.
+          cp release/eos-lhat-macos-arm64/eos_lhat.dylib release/eos_lhat.dylib
           assets=(release/*.dll release/*.so release/*.dylib)
           if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
