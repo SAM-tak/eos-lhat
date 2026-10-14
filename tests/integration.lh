@@ -64,14 +64,14 @@ public^let^run = p^{
     if^reply fits^nil^{ panic^"Missing reply" }
     check(reply.data = "reply","Reply")
     let^bin = std.binary
-    let^input = bin.format({ { "frame", bin.uint(16) }, { "stick", bin.range(0, 8) } })
+    let^input = bin.format(t^{frame:number^, stick:number^}, { { "frame", bin.uint(16) }, { "stick", bin.range(0, 8) } })
     let^out = bin.bytes()
     input.encodeInto({ frame = 513, stick = 7 }, out)
     a.send(bid, out, 3, eos.Reliability.reliableOrdered) catch^panic^it^
     let^into = bin.bytes()
     let^got, from, channel = b.receiveInto(into) catch^panic^it^
     check(got fits^std.binary.Bytes and^from = aid and^channel = 3 and^into.size() = out.size(),"Bytes packet")
-    let^decoded = input.decode(into)
+    let^decoded, _^ = try^input.decode(into, 0)
     if^decoded fits^std.binary.Error { panic^"Bytes decode" }
     check(decoded["frame"] = 513 and^decoded["stick"] = 7,"Bytes round trip")
     let^none, nobody, zero = b.receiveInto(into) catch^panic^it^
