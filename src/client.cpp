@@ -5,9 +5,50 @@
 #include <cstring>
 #include <filesystem>
 #include <mutex>
+#if defined(_WIN32) && defined(EOS_LHAT_SDK_DLL)
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 
 namespace eos_lhat {
 namespace {
+#if defined(_WIN32) && defined(EOS_LHAT_SDK_DLL)
+// The SDK is delay-loaded. Load the copy beside this extension first, so hosts
+// need not put it on their own search path; the delay-load helper then binds to
+// the already loaded module. Fall back to the default search order (e.g. PATH).
+void loadSdk() {
+    static const HMODULE sdk = [] {
+        const std::wstring name(EOS_LHAT_SDK_DLL, EOS_LHAT_SDK_DLL + std::strlen(EOS_LHAT_SDK_DLL));
+        HMODULE self = nullptr;
+        if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                   GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               reinterpret_cast<LPCWSTR>(&loadSdk), &self)) {
+            std::wstring path(MAX_PATH, L'\0');
+            for (;;) {
+                const DWORD n = GetModuleFileNameW(self, path.data(), static_cast<DWORD>(path.size()));
+                if (n == 0) {
+                    path.clear();
+                    break;
+                }
+                if (n < path.size()) {
+                    path.resize(n);
+                    break;
+                }
+                path.resize(path.size() * 2);
+            }
+            if (!path.empty()) {
+                const auto beside = std::filesystem::path(path).replace_filename(name);
+                if (HMODULE m = LoadLibraryExW(beside.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH))
+                    return m;
+            }
+        }
+        return LoadLibraryW(name.c_str());
+    }();
+    if (!sdk)
+        throw Failure("Could not load " EOS_LHAT_SDK_DLL "; place it beside the eos_lhat library");
+}
+#endif
 std::mutex runtimeMutex;
 size_t runtimeUsers = 0;
 bool initialized = false, terminated = false;
@@ -19,6 +60,9 @@ void acquireRuntime() {
     if (initialized && runtimeThread != std::this_thread::get_id())
         throw Failure("All EOS clients must run on the same host thread");
     if (!initialized) {
+#if defined(_WIN32) && defined(EOS_LHAT_SDK_DLL)
+        loadSdk();
+#endif
         EOS_InitializeOptions o{};
         o.ApiVersion = EOS_INITIALIZE_API_LATEST;
         o.ProductName = "eos-lhat";

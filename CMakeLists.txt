@@ -34,6 +34,14 @@ target_link_libraries(eos_lhat PRIVATE "${EOS_LIBRARY}" Threads::Threads)
 set_target_properties(eos_lhat PROPERTIES PREFIX "" CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
 if(MSVC)
     target_compile_options(eos_lhat PRIVATE /W4 /EHsc)
+    # Windows does not search a DLL's own directory for its imports; delay-load the
+    # SDK so the extension can load the copy beside itself first (see loadSdk).
+    target_link_libraries(eos_lhat PRIVATE delayimp)
+    target_link_options(eos_lhat PRIVATE "/DELAYLOAD:${EOS_LIBRARY_NAME}.dll")
+    target_compile_definitions(eos_lhat PRIVATE EOS_LHAT_SDK_DLL="${EOS_LIBRARY_NAME}.dll")
+    # Development builds get the same layout as an installed extension.
+    add_custom_command(TARGET eos_lhat POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${EOS_SDK_ROOT}/Bin/${EOS_LIBRARY_NAME}.dll" "$<TARGET_FILE_DIR:eos_lhat>")
 else()
     target_compile_options(eos_lhat PRIVATE -Wall -Wextra -Wpedantic)
     set_target_properties(eos_lhat PROPERTIES BUILD_RPATH "${EOS_SDK_ROOT}/Bin")

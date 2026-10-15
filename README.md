@@ -33,7 +33,7 @@ ctest --test-dir build -C Release --output-on-failure
 python tests/test_lhat.py --lhat /path/to/lhat --sdk /path/to/SDK
 ```
 
-Linux and macOS use the CMake/Python commands above. Set `BUILD_TESTING=OFF` for a production-only build. `cmake --install build --config Release --prefix dist` installs only the real extension. On Windows, the release artifact is **`eos_lhat.dll` only**; `.lib`, `.exp`, tooling executables and `eos_lhat_mock.dll` are not distributed. The mock replaces EOS for deterministic tests and cannot connect to real EOS services. Users supply the EOS runtime separately. For Linux/macOS deployment, put `libEOSSDK-Linux-Shipping.so` / `libEOSSDK-Mac-Shipping.dylib` next to the installed extension; its runtime search path is `$ORIGIN` / `@loader_path`. macOS builds are universal by default; pass `-DEOS_LHAT_MACOS_UNIVERSAL=OFF` for the host CPU only. Build/test tools also set `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` when using the SDK directory directly.
+Linux and macOS use the CMake/Python commands above. Set `BUILD_TESTING=OFF` for a production-only build. `cmake --install build --config Release --prefix dist` installs only the real extension. On Windows, the release artifact is **`eos_lhat.dll` only**; `.lib`, `.exp`, tooling executables and `eos_lhat_mock.dll` are not distributed. The mock replaces EOS for deterministic tests and cannot connect to real EOS services. Users supply the EOS runtime separately and put it next to the installed extension. Linux/macOS search `$ORIGIN` / `@loader_path`; Windows delay-loads `EOSSDK-Win64-Shipping.dll` from the extension's own directory. Windows builds also copy the SDK DLL beside `build/Release/eos_lhat.dll` (it is not installed). macOS builds are universal by default; pass `-DEOS_LHAT_MACOS_UNIVERSAL=OFF` for the host CPU only. Build/test tools also set `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` when using the SDK directory directly.
 
 ## GitHub Actions
 
@@ -61,12 +61,11 @@ The workflow checks out `SAM-tak/eos-sdk-private` into `EOSSDK`. Configure **`EO
 With the full lhat CLI containing `--extension` support, run from this repository:
 
 ```powershell
-$env:PATH = "$PWD\EOSSDK\SDK\Bin;$env:PATH"
 ..\lhat\build\release\lhat.exe --dump-host-api lhat-host.json --extension .\build\Release\eos_lhat.dll
 ```
 
 This includes the CLI's standard library and EOS definitions without running a game.
-To include LÔVE definitions as well, use the updated lovec with the same SDK `PATH`:
+To include LÔVE definitions as well, use the updated lovec:
 
 ```powershell
 ..\lhat-love\build\love\Release\lovec.exe --dump-host-api lhat-host.json --extension .\build\Release\eos_lhat.dll
@@ -106,11 +105,11 @@ Place the extension in the game's `native` directory, and list it in `extensions
 native/eos_lhat
 ```
 
-The EOS runtime library must be discoverable by the OS. On Windows put `EOSSDK-Win64-Shipping.dll` beside `lovec.exe` / your fused game executable, or put the SDK `Bin` directory on `PATH` for local development. Placing it next to an extension in an arbitrary subdirectory alone is not sufficient. Deploy the appropriate EOS runtime separately under Epic's SDK terms.
+Put the EOS runtime library (`EOSSDK-Win64-Shipping.dll`, `libEOSSDK-Linux-Shipping.so` or `libEOSSDK-Mac-Shipping.dylib`) in the same directory as the extension. On Windows the extension falls back to the default DLL search order (executable directory, `PATH`) if it is not there. Deploy the appropriate EOS runtime separately under Epic's SDK terms.
 
 `examples/love-p2p` is a two-player input-packet probe:
 
-1. Copy `build/Release/eos_lhat.dll` to `examples/love-p2p/native/`.
+1. Copy `build/Release/eos_lhat.dll` and `build/Release/EOSSDK-Win64-Shipping.dll` to `examples/love-p2p/native/`.
 2. Copy `config.example.lton` to `config.lton` and fill the EOS settings. Use the same deployment, socket name and bucket on both computers. Give each a writable cache directory.
 3. Set `host = true^` on one computer and `false^` on the other.
 4. Obtain a Steam Web API ticket separately on each computer, using different Steam accounts. Write the hex string to `steam-ticket.txt` **without BOM, newline or spaces**.
@@ -118,7 +117,6 @@ The EOS runtime library must be discoverable by the OS. On Windows put `EOSSDK-W
 6. S searches again; R reads a fresh ticket from the file and refreshes login; Esc leaves the lobby before quitting (with a five-second fallback).
 
 ```powershell
-$env:PATH = "$PWD\EOSSDK\SDK\Bin;$env:PATH"
 ..\lhat-love\build\love\Release\lovec.exe --no-error-screen examples/love-p2p
 ```
 

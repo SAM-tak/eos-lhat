@@ -21,7 +21,7 @@ SDK本体・Steamworks SDK・認証情報・チケット・ビルド成果物は
 
 DLLと、lhat本体だけをリンクする小さなツール`eos_lhat_host`をビルドする。このツールからEOSの署名表を出力して埋め込み、DLLを再ビルドする。`build/Release/eos_lhat.dll`をフル版・VM専用版の両方で使える。バインドやL^の更新後には作り直す。
 
-配置が異なる場合は`-Lhat`、`-Sdk`、`-Build`を指定する。`-Test`はネイティブテストに加えてL^の統合テストも実行し、`LHAT_WITH_FRONTEND=OFF`のVM専用テストホストも自動ビルドする。Linux/macOSでは英語版READMEのCMake/Pythonコマンドを使う。`BUILD_TESTING=OFF`でテスト用DLLを除外できる。`cmake --install build --config Release --prefix dist`のインストール対象は本物の拡張DLLだけ。Windowsの配布物は **`eos_lhat.dll`のみ**。`.lib`、`.exp`、ツール、`eos_lhat_mock.dll`は配布しない。mockはEOSサービスへ接続せずに動作を再現する自動テスト用。利用者はEOSランタイムを別途用意する。Linux/macOSではインストールした拡張の隣に`libEOSSDK-Linux-Shipping.so`／`libEOSSDK-Mac-Shipping.dylib`を配置する。探索パスは`$ORIGIN`／`@loader_path`。macOSでは既定でuniversal binaryをビルドする。ホストのCPU向けだけにするなら`-DEOS_LHAT_MACOS_UNIVERSAL=OFF`。ビルド・テストではSDKの場所に合わせて`LD_LIBRARY_PATH`／`DYLD_LIBRARY_PATH`も設定する。
+配置が異なる場合は`-Lhat`、`-Sdk`、`-Build`を指定する。`-Test`はネイティブテストに加えてL^の統合テストも実行し、`LHAT_WITH_FRONTEND=OFF`のVM専用テストホストも自動ビルドする。Linux/macOSでは英語版READMEのCMake/Pythonコマンドを使う。`BUILD_TESTING=OFF`でテスト用DLLを除外できる。`cmake --install build --config Release --prefix dist`のインストール対象は本物の拡張DLLだけ。Windowsの配布物は **`eos_lhat.dll`のみ**。`.lib`、`.exp`、ツール、`eos_lhat_mock.dll`は配布しない。mockはEOSサービスへ接続せずに動作を再現する自動テスト用。利用者はEOSランタイムを別途用意し、インストールした拡張の隣に配置する。Linux/macOSの探索パスは`$ORIGIN`／`@loader_path`。Windowsは`EOSSDK-Win64-Shipping.dll`を遅延ロードし、拡張DLL自身のディレクトリから読み込む。Windowsのビルドでは`build/Release/eos_lhat.dll`の隣にもSDKのDLLをコピーする（インストール対象外）。macOSでは既定でuniversal binaryをビルドする。ホストのCPU向けだけにするなら`-DEOS_LHAT_MACOS_UNIVERSAL=OFF`。ビルド・テストではSDKの場所に合わせて`LD_LIBRARY_PATH`／`DYLD_LIBRARY_PATH`も設定する。
 
 ## GitHub Actions
 
@@ -49,11 +49,10 @@ SDKは`SAM-tak/eos-sdk-private`から`EOSSDK`へcheckoutする。**eos-lhatリ�
 今回の `--extension` 対応を含むフル版lhat-cliなら、ゲームを起動せずEOSの定義をJSONへ追加できる。eos-lhatディレクトリから実行する例:
 
 ```powershell
-$env:PATH = "$PWD\EOSSDK\SDK\Bin;$env:PATH"
 ..\lhat\build\release\lhat.exe --dump-host-api lhat-host.json --extension .\build\Release\eos_lhat.dll
 ```
 
-このJSONにはCLIの標準ライブラリとEOSが含まれる。LÔVEのAPIも含める場合は、同じSDKの `PATH` 設定で、今回の対応を含むlovecを使う:
+このJSONにはCLIの標準ライブラリとEOSが含まれる。LÔVEのAPIも含める場合は、今回の対応を含むlovecを使う:
 
 ```powershell
 ..\lhat-love\build\love\Release\lovec.exe --dump-host-api lhat-host.json --extension .\build\Release\eos_lhat.dll
@@ -95,11 +94,11 @@ Epicアカウントのサインインが続いている間は、どの`loginEpic
 native/eos_lhat
 ```
 
-EOSのランタイムDLLもOSから解決可能な場所に必要。Windowsでは`EOSSDK-Win64-Shipping.dll`を`lovec.exe`やfusedゲーム実行ファイルの隣に置く。開発時はSDKの`Bin`を`PATH`に追加してもよい。任意のサブディレクトリにある拡張DLLの隣へ置くだけでは足りない。
+EOSのランタイム（`EOSSDK-Win64-Shipping.dll`・`libEOSSDK-Linux-Shipping.so`・`libEOSSDK-Mac-Shipping.dylib`）は拡張と同じディレクトリに置く。Windowsでは、そこに無ければ既定のDLL探索順（実行ファイルのディレクトリ、`PATH`）にフォールバックする。
 
 `examples/love-p2p`は2人で番号付き入力パケットを送り合うサンプル。
 
-1. `build/Release/eos_lhat.dll`を`examples/love-p2p/native/`へコピーする。
+1. `build/Release/eos_lhat.dll`と`build/Release/EOSSDK-Win64-Shipping.dll`を`examples/love-p2p/native/`へコピーする。
 2. `config.example.lton`を`config.lton`へコピーし、EOSの設定を埋める。両端末でDeployment・socketName・bucketを揃え、書き込み可能なcacheDirectoryを指定する。
 3. 一方を`host = true^`、もう一方を`false^`にする。
 4. 各端末の別々のSteamアカウントでチケットを取得し、`steam-ticket.txt`に16進文字列を書く。**BOM・改行・空白は入れない。**
@@ -107,7 +106,6 @@ EOSのランタイムDLLもOSから解決可能な場所に必要。Windowsで�
 6. Sで再検索、Rで更新したチケットファイルを読み直して再認証、Escで退出して終了する。退出は最大5秒待つ。
 
 ```powershell
-$env:PATH = "$PWD\EOSSDK\SDK\Bin;$env:PATH"
 ..\lhat-love\build\love\Release\lovec.exe --no-error-screen examples/love-p2p
 ```
 
