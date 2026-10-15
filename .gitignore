@@ -54,7 +54,8 @@ dkms.conf
 # debug information files
 *.dwo
 
-.vscode
+.vscode/*
+!.vscode/tasks.json
 .vs
 
 # Epic Online Service SDK source

@@ -52,6 +52,8 @@ Pushing a `v*` tag publishes the libraries only after all four builds and tests 
 
 Dependencies are pinned by the 40-character commit IDs in `lhat.rev` and `eos-sdk.rev`. Update these files when upgrading L^ or the SDK, using commits already pushed to the corresponding repositories. The generated extension must match the consuming host's L^ version and ABI configuration.
 
+In VSCode, run the `Update dependency revisions` task and select `all`, `lhat`, or `eos-sdk`. This requires PowerShell 7 (`pwsh`) and Git SSH access to the dependency repositories. The script resolves the latest remote `main` commits and writes files only after all selected dependencies resolve successfully. From the CLI, run `./scripts/update-revisions.ps1`; use `-LhatRef refs/heads/branch-name` or `-SdkRef refs/tags/tag-name` to select another branch or tag. Review and commit the resulting changes.
+
 The workflow checks out `SAM-tak/eos-sdk-private` into `EOSSDK`. Configure **`EOS_SDK_READ_TOKEN` in the eos-lhat repository's Actions repository secrets**, using a fine-grained token with `Contents: Read-only` access to that SDK repository. The SDK repository must contain `SDK/Include`, `SDK/Lib`, and `SDK/Bin`. The workflow does not run on pull requests and does not upload SDK files, mock DLLs, import libraries or tooling executables.
 
 ## Editor type information

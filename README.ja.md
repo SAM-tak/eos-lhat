@@ -40,6 +40,8 @@ mainへのpushと手動実行で、各OSのネイティブテスト・フル版�
 
 依存先は`lhat.rev`と`eos-sdk.rev`の40桁コミットIDで固定している。更新時は各リポジトリへpush済みのコミットを指定する。生成したDLLのL^の版・ABI設定は利用先のホストと一致させる。
 
+VSCodeの「タスクの実行」→ `Update dependency revisions`で、`all`（両方）・`lhat`・`eos-sdk`を選んで更新できる。PowerShell 7（`pwsh`）と、各リポジトリへのGit SSHアクセスが必要。既定ではリモートの`main`の最新コミットを取得し、選択した依存先すべての取得成功後に書き込む。CLIでは`./scripts/update-revisions.ps1`を実行する。別のブランチやタグを使う場合は`-LhatRef refs/heads/branch-name`や`-SdkRef refs/tags/tag-name`を指定する。更新後は差分を確認してコミットする。
+
 SDKは`SAM-tak/eos-sdk-private`から`EOSSDK`へcheckoutする。**eos-lhatリポジトリ側**のSettings → Secrets and variables → Actionsに、Repository secretとして`EOS_SDK_READ_TOKEN`を登録する。トークンはSDKリポジトリだけを対象にしたfine-grained PATで、`Contents: Read-only`を付与する。SDKリポジトリ内には`SDK/Include`・`SDK/Lib`・`SDK/Bin`を配置する。pull requestでは実行せず、SDK・mock DLL・インポートライブラリ・ツールはアップロードしない。
 
 ## エディタ用の型情報
