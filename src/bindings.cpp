@@ -23,7 +23,7 @@ struct Panic : std::runtime_error {
 const char *const eventNames[] = {"login",         "search",       "created",    "joined",
                                   "left",          "memberJoined", "memberLeft", "ownerChanged",
                                   "lobbyClosed",   "authExpired",  "loggedOut",  "epicForgotten",
-                                  "peerClosed",    "overflow",     "internalError"};
+                                  "peerClosed",    "overflow",     "internalError", "roomUpdated", "kicked"};
 bool boolean(LhatValue v) {
     if (!lhat_is_bool(v))
         throw Failure("Expected a bool");
@@ -90,6 +90,8 @@ LhatValue lobbyValue(LhatMachine *m, const LobbyInfo &i) {
     field(m, t, "bucket", str(m, i.bucket));
     field(m, t, "capacity", lhat_integer(i.capacity));
     field(m, t, "available", lhat_integer(i.available));
+    field(m, t, "name", str(m, i.name));
+    field(m, t, "locked", lhat_bool(i.locked));
     return t;
 }
 LhatValue eventValue(LhatMachine *m, const Event &e) {
@@ -182,6 +184,13 @@ LhatValue forgetEpic(LhatMachine *, const LhatValue *a) {
 LhatValue createLobby(LhatMachine *, const LhatValue *a) {
     return lhat_integer(client(a[0]).createLobby(string(a[1]), integer(a[2], 64)));
 }
+LhatValue setRoom(LhatMachine *, const LhatValue *a) {
+    return lhat_integer(client(a[0]).setRoom(string(a[1]), boolean(a[2])));
+}
+LhatValue kick(LhatMachine *, const LhatValue *a) {
+    client(a[0]).kick(string(a[1]));
+    return lhat_nil();
+}
 LhatValue search(LhatMachine *, const LhatValue *a) {
     return lhat_integer(client(a[0]).search(string(a[1]), integer(a[2], 100)));
 }
@@ -193,6 +202,9 @@ LhatValue leave(LhatMachine *, const LhatValue *a) {
 }
 LhatValue userId(LhatMachine *m, const LhatValue *a) {
     return str(m, client(a[0]).userId());
+}
+LhatValue displayName(LhatMachine *m, const LhatValue *a) {
+    return str(m, client(a[0]).displayName());
 }
 LhatValue lobby(LhatMachine *m, const LhatValue *a) {
     return lobbyValue(m, client(a[0]).lobby());
@@ -269,7 +281,7 @@ LhatValue relay(LhatMachine *, const LhatValue *a) {
 void dispose(LhatMachine *, void *, const LhatValue *a, size_t, LhatValue *, int *) noexcept {
     delete static_cast<Client *>(api->lhat_hostdata_pointer(a[0], clientTag));
 }
-#define LOBBY "t^{id:string^,owner:string^,bucket:string^,capacity:number^,available:number^}"
+#define LOBBY "t^{id:string^,owner:string^,bucket:string^,capacity:number^,available:number^,name:string^,locked:bool^}"
 const char *install(const LhatExtensionAPI *host, LhatProgram *program, uint32_t phase, void **) {
     if (host->abi_version != LHAT_EXTENSION_ABI || host->struct_size < sizeof(*host))
         return "Incompatible L^ host API";
@@ -308,10 +320,13 @@ const char *install(const LhatExtensionAPI *host, LhatProgram *program, uint32_t
     MEMBER(loginEpicDeveloper, "p^self^,string^,string^ -> number^|eos.Error;");
     MEMBER(forgetEpic, "p^self^ -> number^|eos.Error;");
     MEMBER(createLobby, "p^self^,string^,number^ -> number^|eos.Error;");
+    MEMBER(setRoom, "p^self^,string^,bool^ -> number^|eos.Error;");
+    MEMBER(kick, "p^self^,string^ -> nil^|eos.Error;");
     MEMBER(search, "p^self^,string^,number^ -> number^|eos.Error;");
     MEMBER(join, "p^self^,string^ -> number^|eos.Error;");
     MEMBER(leave, "p^self^ -> number^|eos.Error;");
     MEMBER(userId, "f^self^ -> string^|eos.Error;");
+    MEMBER(displayName, "f^self^ -> string^|eos.Error;");
     MEMBER(lobby, "f^self^ -> " LOBBY "|eos.Error;");
     MEMBER(results, "f^self^ -> t^{" LOBBY "[]}|eos.Error;");
     MEMBER(members, "f^self^ -> t^{string^[]}|eos.Error;");

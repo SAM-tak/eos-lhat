@@ -4,6 +4,7 @@
 #include <eos_connect.h>
 #include <eos_lobby.h>
 #include <eos_p2p.h>
+#include <eos_userinfo.h>
 #include <deque>
 #include <memory>
 #include <optional>
@@ -36,7 +37,9 @@ enum class EventKind {
     EpicForgotten,
     PeerClosed,
     Overflow,
-    InternalError
+    InternalError,
+    RoomUpdated,
+    Kicked
 };
 struct Event {
     EventKind kind;
@@ -47,6 +50,8 @@ struct Event {
 struct LobbyInfo {
     std::string id, owner, bucket;
     uint32_t capacity = 0, available = 0;
+    std::string name;
+    bool locked = false;
 };
 struct Packet {
     std::string peer, data;
@@ -75,6 +80,8 @@ class Client {
     uint64_t loginEpicDeveloper(const std::string &host, const std::string &name);
     uint64_t forgetEpic();
     uint64_t createLobby(const std::string &bucket, uint32_t capacity);
+    uint64_t setRoom(const std::string &name, bool locked);
+    void kick(const std::string &peer);
     uint64_t search(const std::string &bucket, uint32_t limit);
     uint64_t join(const std::string &id);
     uint64_t leave();
@@ -82,6 +89,7 @@ class Client {
     std::vector<std::string> members() const;
     LobbyInfo lobby() const;
     std::string userId() const;
+    std::string displayName() const;
     void send(const std::string &peer, std::string_view bytes, uint8_t channel,
               EOS_EPacketReliability reliability);
     std::optional<Packet> receive();
@@ -104,10 +112,11 @@ class Client {
     EOS_HLobbySearch search_ = nullptr;
     EOS_NotificationId authNotify_ = 0, statusNotify_ = 0, memberNotify_ = 0, requestNotify_ = 0,
                        closedNotify_ = 0;
-    bool runtime_ = false, closing_ = false, epicFallback_ = false;
+    bool runtime_ = false, closing_ = false, epicFallback_ = false, deviceLogin_ = false;
     uint64_t nextRequest_ = 1, loginRequest_ = 0, lobbyRequest_ = 0, searchRequest_ = 0,
-             dropped_ = 0;
+             dropped_ = 0, roomRequest_ = 0;
     std::string lobbyId_, loginName_;
+    std::string displayName_;
     std::vector<LobbyInfo> results_;
     std::deque<Event> events_;
     void check(bool loggedIn = false) const;

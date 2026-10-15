@@ -70,7 +70,7 @@ EOS Developer PortalでProduct・Sandbox・Deploymentを作成し、SteamのIden
 
 初回ログインで`EOS_InvalidUser`になった場合は`EOS_Connect_CreateUser`へ進む。既存アカウントとのリンク機能は未実装。別アカウントへ切り替える場合はClientを作り直す。
 
-開発用には`loginDevice(displayName)`も利用できる。同じ端末のDevice IDは同じユーザーに対応しうるため、実際の2人対戦には別端末・別アカウントを使う。
+`loginDevice(displayName)` は外部アカウント不要のConnect認証に利用できる。`authExpired` 時は同じDevice認証済みClientで再度呼び、ユーザーID・ロビーを維持したまま更新できる。同じ端末のDevice IDは同じユーザーに対応しうるため、実際の2人対戦には別端末・別アカウントを使う。
 
 ## Epic Gamesアカウント認証の準備
 
@@ -125,7 +125,7 @@ eos.create({ productId, sandboxId, deploymentId, clientId, clientSecret,
 | `tick()` | `nil \| Error`。毎フレーム呼んで非同期処理を進める |
 | `poll()` | 通知レコード、空ならnil、失敗ならError |
 | `loginSteam(hexTicket)` | リクエストIDまたはError。認証更新にも使う |
-| `loginDevice(displayName)` | リクエストIDまたはError。開発用認証 |
+| `loginDevice(displayName)` | リクエストIDまたはError。Device ID認証・更新 |
 | `loginEpic(interactive)` | リクエストIDまたはError。保存済みトークンでのEpicログイン、必要ならAccount Portalへ |
 | `loginEpicExchange(code)` | リクエストIDまたはError。Epic Games Launcherのexchange code |
 | `loginEpicDeveloper(host, credentialName)` | リクエストIDまたはError。Developer Authentication Tool |
@@ -135,6 +135,7 @@ eos.create({ productId, sandboxId, deploymentId, clientId, clientSecret,
 | `results()` | 検索完了後のロビー配列、またはError |
 | `join(lobbyId)` / `leave()` | リクエストIDまたはError。ID参加を許可したロビーが対象 |
 | `userId()` | Product User ID文字列、未ログインは空、失敗ならError |
+| `displayName()` | Epicログイン後の表示名。他の認証方式・取得失敗では空、呼び出し失敗ならError |
 | `lobby()` | 現在のロビーレコード、またはError |
 | `members()` | 自分を含むProduct User IDの配列、またはError |
 | `send(peerId, data, channel, reliability)` | `nil \| Error`。dataはバイナリ文字列`string^`または`std.binary.Bytes`（2本のオーバーロード）、最大1170バイト、channelは0～255 |
@@ -173,3 +174,7 @@ Client再作成やLÔVE restartではEOS SDKの初期化状態を保持する。
 実績・フレンド・招待・ボイス・カスタムロビー属性・自動マッチングキュー・Steamチケット取得・アカウントリンク・ゲーム状態同期は初版の範囲外。
 
 統合テストはLÔVEを使わず、フル版・VM専用版のL^で実行する。restartテストでは同じプロセス内でProgramとVMを3回作り直し、EOSの初期化・終了が各1回で、全3個のPlatformが解放されることを確認する。`examples/love-p2p`はそのまま残し、このテストの対象から外している。
+
+## 名前付きルームと参加者の退出
+
+`setRoom(name, locked)` は所有者だけが呼べる。公開属性 `vp_name` と `vp_locked` を更新し、`roomUpdated` 通知で完了する。ロビー情報には `name` と `locked` が加わる。暗証番号自体は設定・公開しない。`kick(peerId)` は所有者が参加者を退出させ、完了を `kicked` 通知で知らせる。暗証番号の照合・着席・READY・試合終了後の復帰はゲーム側の処理。

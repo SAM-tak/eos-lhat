@@ -81,7 +81,7 @@ Your Steam integration obtains a ticket using `ISteamUser::GetAuthTicketForWebAp
 
 **Ticket acquisition is outside this extension.** It neither starts Steam nor distributes Steamworks SDK code. Keep the ticket valid according to the Steamworks lifecycle. On `authExpired`, obtain a fresh ticket and call `loginSteam` again on the same Client; lobby membership is retained. A first login returning `EOS_InvalidUser` automatically calls `EOS_Connect_CreateUser`. Account linking and switching between accounts are not implemented; create a new Client to change accounts.
 
-`loginDevice(displayName)` is available for development without Steam. It is not a substitute for Steam identity in a shipped Steam game. Two clients on the same device can map to the same Device ID; use separate devices/accounts for real two-player tests.
+`loginDevice(displayName)` provides accountless Connect login. On `authExpired`, call it again on the same Device-authenticated Client to refresh Connect while preserving its user and lobby. It is not a substitute for Steam identity in a shipped Steam game. Two clients on the same device can map to the same Device ID; use separate devices/accounts for real two-player tests.
 
 ## Epic Games account authentication
 
@@ -136,17 +136,20 @@ All configuration fields are strings. `socketName` is 1–32 EOS socket-name cha
 | `tick()` | `nil \| Error`; call once per frame to drive EOS callbacks |
 | `poll()` | Event record, `nil` when empty, or Error |
 | `loginSteam(hexTicket)` | Request ID or Error; also refreshes credentials |
-| `loginDevice(displayName)` | Request ID or Error; development login |
+| `loginDevice(displayName)` | Request ID or Error; Device ID login / refresh |
 | `loginEpic(interactive)` | Request ID or Error; persistent Epic login, optionally falling back to the Account Portal |
 | `loginEpicExchange(code)` | Request ID or Error; Epic Games Launcher exchange code |
 | `loginEpicDeveloper(host, credentialName)` | Request ID or Error; Developer Authentication Tool |
 | `forgetEpic()` | Request ID or Error; deletes the stored Epic refresh token |
 | `createLobby(bucket, capacity)` | Request ID or Error; public lobby, capacity 2–64, host migration enabled |
+| `setRoom(name, locked)` | Request ID or Error; owner publishes the room name and PIN-required flag (never the PIN itself) |
+| `kick(peerId)` | `nil \| Error`; owner removes a lobby member; completion is `kicked` |
 | `search(bucket, limit)` | Request ID or Error; bucket equality and at least one free slot, limit 1–100 |
 | `results()` | Array of lobby records or Error; available after search completion |
 | `join(lobbyId)` | Request ID or Error; lobbies must allow joining by ID |
 | `leave()` | Request ID or Error |
 | `userId()` | Product User ID string; empty before login, or Error |
+| `displayName()` | Epic display name after login; empty for other login methods or unavailable profile, or Error |
 | `lobby()` | Current lobby record or Error |
 | `members()` | Array of Product User ID strings (including self), or Error |
 | `send(peerId, data, channel, reliability)` | `nil \| Error`; `data` is a binary-safe `string^` or a `std.binary.Bytes` (two overloads), maximum 1170 bytes, channel 0–255 |
@@ -159,12 +162,12 @@ All configuration fields are strings. `socketName` is 1–32 EOS socket-name cha
 The `Bytes` overloads of `send` and `receiveInto` exist only when the host registers `std.binary` before loading extensions; otherwise the client has the `string^` methods alone. Using a disposed `Bytes` panics, as in `std.binary`.
 
 Reliability values: `eos.Reliability.unreliable`, `.reliableUnordered`, `.reliableOrdered`.
-Lobby records: `{id:string, owner:string, bucket:string, capacity:number, available:number}`.
+Lobby records: `{id:string, owner:string, bucket:string, capacity:number, available:number, name:string, locked:bool}`.
 Arrays use zero-based L^ indexes. Search results are snapshots and reset at the next search.
 
 Operations return a request ID immediately. Their Event has the matching `request`, `ok`, and EOS result name in `code`; unsolicited notifications have request 0. Events also contain `lobbyId` and `peerId` strings (empty when inapplicable). `kind` is an `eos.EventKind`:
 
-- Completions: `login`, `search`, `created`, `joined`, `left`, `epicForgotten`.
+- Completions: `login`, `search`, `created`, `joined`, `left`, `epicForgotten`, `roomUpdated`, `kicked`.
 - Notifications: `memberJoined`, `memberLeft`, `ownerChanged`, `lobbyClosed`, `authExpired`, `loggedOut`, `peerClosed`.
 - Diagnostics: `overflow`, `internalError`. Overflow reports the number of dropped notifications in `code`. Resynchronize membership and pending operations if it occurs.
 
@@ -180,4 +183,6 @@ Call `leave()` and keep ticking until completion for graceful departure, then `c
 
 Tests cover real SDK loading, offline platform creation/recreation, full/VM registration, and a deterministic fake backend for login continuation, token refresh, Epic persistent/portal/exchange/developer login, two-player lobby search/join, binary P2P packets, membership filtering, queue overflow and cleanup. The restart test destroys and recreates the entire L^ Program and VM three times in one process while retaining the extension. It checks one SDK initialization/shutdown and the release of all three platforms. The LÔVE example is kept separately and is not part of this L^-only suite. **Real Steam login, EOS backend matchmaking and NAT/relay connectivity have not been verified**: they require a configured EOS deployment and two real accounts/devices. Mock tests do not validate those services.
 
-Achievements, friends, invites, voice, custom lobby attributes, automatic matchmaking queues, Steam ticket acquisition, account linking and game-state synchronization are outside this first implementation.
+Achievements, friends, invites, voice, automatic matchmaking queues, Steam ticket acquisition, account linking and game-state synchronization are outside this first implementation.
+
+Room metadata exposes only `vp_name` and `vp_locked` as public EOS lobby attributes. PIN admission, seating, readiness and match lifecycle are game-level protocols; the extension does not validate a PIN. Room owners may use `kick` to remove rejected clients.

@@ -39,6 +39,13 @@ struct Room {
     std::string id, bucket;
     uint32_t capacity;
     std::vector<EOS_ProductUserId> members;
+    std::string name;
+    bool locked = false;
+};
+struct EOS_LobbyModificationHandle {
+    FakePlatform *platform;
+    std::string id, name;
+    bool locked = false;
 };
 struct Search {
     FakePlatform *platform;
@@ -52,6 +59,7 @@ std::vector<FakePlatform *> platforms;
 std::map<std::string, Room> rooms;
 int initializations = 0, shutdowns = 0, releases = 0, accepts = 0, closes = 0;
 bool invalidUser = false, failSearch = false, persistentAuth = false;
+bool failProfile = false;
 int authLogins = 0, portalLogins = 0, idTokens = 0;
 EOS_EpicAccountIdDetails epicAccount{"epic"};
 int userSerial = 0;
@@ -137,6 +145,29 @@ void EOS_CALL EOS_Platform_Tick(EOS_HPlatform h) {
 EOS_HAuth EOS_CALL EOS_Platform_GetAuthInterface(EOS_HPlatform h) {
     return reinterpret_cast<EOS_HAuth>(h);
 }
+EOS_HUserInfo EOS_CALL EOS_Platform_GetUserInfoInterface(EOS_HPlatform h) {
+    return reinterpret_cast<EOS_HUserInfo>(h);
+}
+void EOS_CALL EOS_UserInfo_QueryUserInfo(EOS_HUserInfo h,
+    const EOS_UserInfo_QueryUserInfoOptions *options, void *context,
+    EOS_UserInfo_OnQueryUserInfoCallback callback) {
+    auto local = options->LocalUserId, target = options->TargetUserId;
+    fake::p(h)->work.push_back([=] {
+        EOS_UserInfo_QueryUserInfoCallbackInfo info{
+            fake::failProfile ? R::EOS_NotFound : R::EOS_Success, context, local, target};
+        callback(&info);
+    });
+}
+EOS_EResult EOS_CALL EOS_UserInfo_CopyUserInfo(EOS_HUserInfo,
+    const EOS_UserInfo_CopyUserInfoOptions *options, EOS_UserInfo **out) {
+    auto *info = new EOS_UserInfo{};
+    info->ApiVersion = EOS_USERINFO_COPYUSERINFO_API_LATEST;
+    info->UserId = options->TargetUserId;
+    info->DisplayName = "Epic Test Player";
+    *out = info;
+    return R::EOS_Success;
+}
+void EOS_CALL EOS_UserInfo_Release(EOS_UserInfo *info) { delete info; }
 EOS_HConnect EOS_CALL EOS_Platform_GetConnectInterface(EOS_HPlatform h) {
     return reinterpret_cast<EOS_HConnect>(h);
 }
@@ -467,4 +498,44 @@ EOS_EResult EOS_CALL EOS_P2P_CloseConnections(EOS_HP2P h, const EOS_P2P_CloseCon
 }
 EOS_EResult EOS_CALL EOS_P2P_SetRelayControl(EOS_HP2P, const EOS_P2P_SetRelayControlOptions *) {
     return R::EOS_Success;
+}
+
+EOS_EResult EOS_CALL EOS_Lobby_UpdateLobbyModification(EOS_HLobby h, const EOS_Lobby_UpdateLobbyModificationOptions *o, EOS_HLobbyModification *out) {
+    auto &r = fake::rooms.at(o->LobbyId);
+    *out = new EOS_LobbyModificationHandle{fake::p(h), o->LobbyId, r.name, r.locked};
+    return R::EOS_Success;
+}
+EOS_EResult EOS_CALL EOS_LobbyModification_AddAttribute(EOS_HLobbyModification h, const EOS_LobbyModification_AddAttributeOptions *o) {
+    if (!std::strcmp(o->Attribute->Key, "vp_name")) h->name = o->Attribute->Value.AsUtf8;
+    if (!std::strcmp(o->Attribute->Key, "vp_locked")) h->locked = o->Attribute->Value.AsBool == EOS_TRUE;
+    return R::EOS_Success;
+}
+void EOS_CALL EOS_Lobby_UpdateLobby(EOS_HLobby, const EOS_Lobby_UpdateLobbyOptions *o, void *d, EOS_Lobby_OnUpdateLobbyCallback cb) {
+    auto mod = *o->LobbyModificationHandle;
+    mod.platform->work.push_back([mod, d, cb] {
+        auto &r = fake::rooms.at(mod.id); r.name = mod.name; r.locked = mod.locked;
+        EOS_Lobby_UpdateLobbyCallbackInfo i{R::EOS_Success, d, mod.id.c_str()}; cb(&i);
+    });
+}
+void EOS_CALL EOS_LobbyModification_Release(EOS_HLobbyModification h) { delete h; }
+EOS_EResult EOS_CALL EOS_LobbyDetails_CopyAttributeByKey(EOS_HLobbyDetails h, const EOS_LobbyDetails_CopyAttributeByKeyOptions *o, EOS_Lobby_Attribute **out) {
+    auto *r = reinterpret_cast<Room *>(h);
+    if (r->name.empty()) return R::EOS_NotFound;
+    auto *data = new EOS_Lobby_AttributeData{}; data->ApiVersion = EOS_LOBBY_ATTRIBUTEDATA_API_LATEST;
+    data->Key = o->AttrKey;
+    if (!std::strcmp(o->AttrKey, "vp_name")) { data->ValueType = EOS_EAttributeType::EOS_AT_STRING; data->Value.AsUtf8 = r->name.c_str(); }
+    else if (!std::strcmp(o->AttrKey, "vp_locked")) { data->ValueType = EOS_EAttributeType::EOS_AT_BOOLEAN; data->Value.AsBool = r->locked ? EOS_TRUE : EOS_FALSE; }
+    else { delete data; return R::EOS_NotFound; }
+    *out = new EOS_Lobby_Attribute{EOS_LOBBY_ATTRIBUTE_API_LATEST, data, EOS_ELobbyAttributeVisibility::EOS_LAT_PUBLIC};
+    return R::EOS_Success;
+}
+void EOS_CALL EOS_Lobby_Attribute_Release(EOS_Lobby_Attribute *a) { delete a->Data; delete a; }
+void EOS_CALL EOS_Lobby_KickMember(EOS_HLobby h, const EOS_Lobby_KickMemberOptions *o, void *d, EOS_Lobby_OnKickMemberCallback cb) {
+    auto *p = fake::p(h); std::string id = o->LobbyId; auto who = o->TargetUserId;
+    p->work.push_back([id, who, d, cb] {
+        auto &r = fake::rooms.at(id);
+        r.members.erase(std::remove(r.members.begin(), r.members.end(), who), r.members.end());
+        fake::member(r, who, EOS_ELobbyMemberStatus::EOS_LMS_KICKED);
+        EOS_Lobby_KickMemberCallbackInfo i{R::EOS_Success, d, id.c_str()}; cb(&i);
+    });
 }

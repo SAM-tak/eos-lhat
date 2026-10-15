@@ -330,10 +330,18 @@ uint64_t Client::loginSteam(const std::string &ticket) {
 uint64_t Client::loginDevice(const std::string &name) {
     check();
     text(name, "display name", 32);
-    if (user_ || loginRequest_)
-        throw Failure("Device login requires a new, idle client");
+    if (loginRequest_)
+        throw Failure("Login already pending");
+    if (user_ && !deviceLogin_)
+        throw Failure("Device login cannot switch an authenticated account");
     loginName_ = name;
     auto request = loginRequest_ = nextRequest_++;
+    if (user_) {
+        // Refresh Connect credentials without recreating the Device ID or lobby.
+        connectLogin(EOS_EExternalCredentialType::EOS_ECT_DEVICEID_ACCESS_TOKEN, nullptr);
+        return request;
+    }
+    deviceLogin_ = true;
     EOS_Connect_CreateDeviceIdOptions o{EOS_CONNECT_CREATEDEVICEID_API_LATEST, "eos-lhat desktop"};
     EOS_Connect_CreateDeviceId(
         connect_, &o, this, [](const EOS_Connect_CreateDeviceIdCallbackInfo *i) {
@@ -405,7 +413,29 @@ void Client::authLogin(EOS_ELoginCredentialType type, const char *id, const char
             c.epicFallback_ = false;
             if (i->ResultCode == EOS_EResult::EOS_Success) {
                 c.epic_ = i->LocalUserId;
-                c.connectEpic();
+                c.displayName_.clear();
+                auto users = EOS_Platform_GetUserInfoInterface(c.platform_);
+                EOS_UserInfo_QueryUserInfoOptions query{EOS_USERINFO_QUERYUSERINFO_API_LATEST,
+                                                       c.epic_, c.epic_};
+                EOS_UserInfo_QueryUserInfo(users, &query, &c,
+                    [](const EOS_UserInfo_QueryUserInfoCallbackInfo *result) {
+                        callback(result->ClientData, [&](Client &self) {
+                            if (result->ResultCode == EOS_EResult::EOS_Success) {
+                                EOS_UserInfo_CopyUserInfoOptions options{
+                                    EOS_USERINFO_COPYUSERINFO_API_LATEST, self.epic_, self.epic_};
+                                EOS_UserInfo *info = nullptr;
+                                auto handle = EOS_Platform_GetUserInfoInterface(self.platform_);
+                                if (EOS_UserInfo_CopyUserInfo(handle, &options, &info) ==
+                                        EOS_EResult::EOS_Success && info) {
+                                    if (info->DisplayName)
+                                        self.displayName_ = info->DisplayName;
+                                    EOS_UserInfo_Release(info);
+                                }
+                            }
+                            // Profile lookup failure must not prevent authentication.
+                            self.connectEpic();
+                        });
+                    });
             } else if (fallback && i->ResultCode != EOS_EResult::EOS_NoConnection &&
                        i->ResultCode != EOS_EResult::EOS_TimedOut &&
                        i->ResultCode != EOS_EResult::EOS_Canceled)
@@ -427,6 +457,10 @@ void Client::connectEpic() {
     std::unique_ptr<EOS_Auth_IdToken, decltype(&EOS_Auth_IdToken_Release)> token(
         raw, EOS_Auth_IdToken_Release);
     connectLogin(EOS_EExternalCredentialType::EOS_ECT_EPIC_ID_TOKEN, token->JsonWebToken);
+}
+std::string Client::displayName() const {
+    check();
+    return displayName_;
 }
 uint64_t Client::forgetEpic() {
     check();
@@ -521,8 +555,65 @@ LobbyInfo Client::info(EOS_HLobbyDetails details) {
     require(EOS_LobbyDetails_CopyInfo(details, &o, &raw), "Lobby info");
     std::unique_ptr<EOS_LobbyDetails_Info, decltype(&EOS_LobbyDetails_Info_Release)> holder(
         raw, EOS_LobbyDetails_Info_Release);
-    return {raw->LobbyId, userText(raw->LobbyOwnerUserId), raw->BucketId ? raw->BucketId : "",
-            raw->MaxMembers, raw->AvailableSlots};
+    LobbyInfo result{raw->LobbyId, userText(raw->LobbyOwnerUserId), raw->BucketId ? raw->BucketId : "",
+                     raw->MaxMembers, raw->AvailableSlots};
+    for (auto key : {"vp_name", "vp_locked"}) {
+        EOS_LobbyDetails_CopyAttributeByKeyOptions attrOptions{EOS_LOBBYDETAILS_COPYATTRIBUTEBYKEY_API_LATEST, key};
+        EOS_Lobby_Attribute *attr = nullptr;
+        if (EOS_LobbyDetails_CopyAttributeByKey(details, &attrOptions, &attr) == EOS_EResult::EOS_Success && attr) {
+            if (attr->Data && std::string(key) == "vp_name" && attr->Data->ValueType == EOS_EAttributeType::EOS_AT_STRING)
+                result.name = attr->Data->Value.AsUtf8 ? attr->Data->Value.AsUtf8 : "";
+            if (attr->Data && std::string(key) == "vp_locked" && attr->Data->ValueType == EOS_EAttributeType::EOS_AT_BOOLEAN)
+                result.locked = attr->Data->Value.AsBool == EOS_TRUE;
+            EOS_Lobby_Attribute_Release(attr);
+        }
+    }
+    return result;
+}
+uint64_t Client::setRoom(const std::string &name, bool locked) {
+    check(true);
+    text(name, "room name", 96);
+    if (lobbyId_.empty() || lobby().owner != userId()) throw Failure("Only the lobby owner can set the room name");
+    if (roomRequest_) throw Failure("Room update already pending");
+    EOS_HLobbyModification mod = nullptr;
+    EOS_Lobby_UpdateLobbyModificationOptions options{EOS_LOBBY_UPDATELOBBYMODIFICATION_API_LATEST, user_, lobbyId_.c_str()};
+    require(EOS_Lobby_UpdateLobbyModification(lobbies_, &options, &mod), "Modify room");
+    try {
+        EOS_Lobby_AttributeData data{};
+        data.ApiVersion = EOS_LOBBY_ATTRIBUTEDATA_API_LATEST;
+        data.Key = "vp_name";
+        data.ValueType = EOS_EAttributeType::EOS_AT_STRING;
+        data.Value.AsUtf8 = name.c_str();
+        EOS_LobbyModification_AddAttributeOptions add{EOS_LOBBYMODIFICATION_ADDATTRIBUTE_API_LATEST, &data, EOS_ELobbyAttributeVisibility::EOS_LAT_PUBLIC};
+        require(EOS_LobbyModification_AddAttribute(mod, &add), "Set room name");
+        data.Key = "vp_locked";
+        data.ValueType = EOS_EAttributeType::EOS_AT_BOOLEAN;
+        data.Value.AsBool = locked ? EOS_TRUE : EOS_FALSE;
+        require(EOS_LobbyModification_AddAttribute(mod, &add), "Set room lock flag");
+        auto request = roomRequest_ = nextRequest_++;
+        EOS_Lobby_UpdateLobbyOptions update{EOS_LOBBY_UPDATELOBBY_API_LATEST, mod};
+        EOS_Lobby_UpdateLobby(lobbies_, &update, this, [](const EOS_Lobby_UpdateLobbyCallbackInfo *i) {
+            callback(i->ClientData, [&](Client &c) {
+                auto request = c.roomRequest_;
+                c.roomRequest_ = 0;
+                c.emit({EventKind::RoomUpdated, request, i->ResultCode == EOS_EResult::EOS_Success,
+                        EOS_EResult_ToString(i->ResultCode), i->LobbyId ? i->LobbyId : ""});
+            });
+        });
+        EOS_LobbyModification_Release(mod);
+        return request;
+    } catch (...) { EOS_LobbyModification_Release(mod); throw; }
+}
+void Client::kick(const std::string &peer) {
+    check(true);
+    auto who = EOS_ProductUserId_FromString(peer.c_str());
+    if (!who || who == user_ || lobby().owner != userId()) throw Failure("Only the owner can kick another member");
+    EOS_Lobby_KickMemberOptions o{EOS_LOBBY_KICKMEMBER_API_LATEST, lobbyId_.c_str(), user_, who};
+    EOS_Lobby_KickMember(lobbies_, &o, this, [](const EOS_Lobby_KickMemberCallbackInfo *i) {
+        callback(i->ClientData, [&](Client &c) {
+            c.emit({EventKind::Kicked, 0, i->ResultCode == EOS_EResult::EOS_Success, EOS_EResult_ToString(i->ResultCode)});
+        });
+    });
 }
 uint64_t Client::search(const std::string &bucket, uint32_t limit) {
     check(true);
