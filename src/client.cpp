@@ -66,7 +66,7 @@ void acquireRuntime() {
         EOS_InitializeOptions o{};
         o.ApiVersion = EOS_INITIALIZE_API_LATEST;
         o.ProductName = "eos-lhat";
-        o.ProductVersion = "0.1.4";
+        o.ProductVersion = "0.1.5";
         // An externally owned SDK needs a separate, explicit integration contract.
         require(EOS_Initialize(&o), "EOS_Initialize");
         initialized = true;

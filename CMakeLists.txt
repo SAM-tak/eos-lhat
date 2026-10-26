@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(eos_lhat VERSION 0.1.4 LANGUAGES C CXX)
+project(eos_lhat VERSION 0.1.5 LANGUAGES C CXX)
 find_package(Threads REQUIRED)
 set(EOS_SDK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/EOSSDK/SDK" CACHE PATH "Downloaded EOS SDK (Include, Lib, Bin)")
 set(LHAT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../lhat" CACHE PATH "Matching L^ source checkout")
