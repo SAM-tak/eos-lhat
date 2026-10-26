@@ -1,6 +1,6 @@
 #include "client.h"
 #include <lhat/extension.h>
-#if LHAT_EXTENSION_ABI != 2
+#if LHAT_EXTENSION_ABI < 2
 #error "EOS for L^ requires native extension ABI 2 with a shutdown callback"
 #endif
 #include <cmath>
@@ -20,10 +20,10 @@ const LhatBinaryInterface *binary;
 struct Panic : std::runtime_error {
     using std::runtime_error::runtime_error;
 };
-const char *const eventNames[] = {"login",         "search",       "created",    "joined",
-                                  "left",          "memberJoined", "memberLeft", "ownerChanged",
-                                  "lobbyClosed",   "authExpired",  "loggedOut",  "epicForgotten",
-                                  "peerClosed",    "overflow",     "internalError", "roomUpdated", "kicked"};
+const char *const eventNames[] = {"login",         "search",       "created",       "joined",
+                                  "left",          "memberJoined", "memberLeft",    "ownerChanged",
+                                  "lobbyClosed",   "authExpired",  "loggedOut",     "epicForgotten",
+                                  "peerClosed",    "overflow",     "internalError", "roomUpdated",   "kicked"};
 bool boolean(LhatValue v) {
     if (!lhat_is_bool(v))
         throw Failure("Expected a bool");
